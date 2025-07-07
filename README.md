@@ -164,17 +164,17 @@ timbergem/
 ## ✅ Roadmap Checklist
 
 ### Phase 1: Foundation & Annotation UI
--   [ ] **M1.1:** Setup backend and frontend project structure.
--   [ ] **M1.1:** Create `/api/upload` endpoint on the backend.
--   [ ] **M1.1:** Create a file upload component in the frontend.
--   [ ] **M1.2:** Implement PDF-to-image conversion logic using PyMuPDF.
--   [ ] **M1.2:** Create a paginated view in the frontend to display document images.
--   [ ] **M1.3:** **(`main` branch)** Integrate Fabric.js/Konva.js into a React component.
--   [ ] **M1.3:** **(`main` branch)** Implement bounding box drawing and tagging functionality.
+-   [x] **M1.1:** Setup backend and frontend project structure.
+-   [x] **M1.1:** Create `/api/upload` endpoint on the backend.
+-   [x] **M1.1:** Create a file upload component in the frontend.
+-   [x] **M1.2:** Implement PDF-to-image conversion logic using PyMuPDF.
+-   [x] **M1.2:** Create a paginated view in the frontend to display document images.
+-   [x] **M1.3:** **(`main` branch)** Integrate Fabric.js/Konva.js into a React component.
+-   [x] **M1.3:** **(`main` branch)** Implement bounding box drawing and tagging functionality.
 -   [ ] **M1.3:** **(`feature/label-studio` branch)** Setup Label Studio and create a project template.
 -   [ ] **M1.3:** **(`feature/label-studio` branch)** Implement API calls to push tasks to Label Studio.
--   [ ] **M1.3:** Create `/api/save_annotations` endpoint.
--   [ ] **M1.3:** Implement frontend logic to post annotation data to the backend.
+-   [x] **M1.3:** Create `/api/save_annotations` endpoint.
+-   [x] **M1.3:** Implement frontend logic to post annotation data to the backend.
 
 ### Phase 2: Guided Digitization
 -   [ ] **M2.1:** Write a Python script to process saved annotation JSON.
