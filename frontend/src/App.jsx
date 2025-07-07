@@ -160,6 +160,7 @@ function App() {
                     imageUrl={imageUrl}
                     pageNumber={currentPage}
                     onAnnotationsChange={(annotations) => handleAnnotationsChange(currentPage, annotations)}
+                    existingAnnotations={allAnnotations[currentPage] || []}
                 />
             );
         } else {

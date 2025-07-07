@@ -345,6 +345,27 @@ button:hover:not(:disabled) {
     max-width: 100%;
 }
 
+/* Individual annotation delete button */
+.delete-annotation-button {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+    margin-left: auto;
+}
+
+.delete-annotation-button:hover {
+    background-color: #c82333;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .document-controls {
@@ -359,5 +380,14 @@ button:hover:not(:disabled) {
     
     .control-group {
         justify-content: center;
+    }
+    
+    .annotation-item {
+        flex-wrap: wrap;
+    }
+    
+    .delete-annotation-button {
+        margin-left: 0;
+        margin-top: 5px;
     }
 }
