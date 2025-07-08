@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { fabric } from 'fabric';
 
-const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange }) => {
+const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange, existingAnnotations }) => {
     const canvasRef = useRef(null);
     const fabricCanvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [selectedTag, setSelectedTag] = useState('TitleBlock');
-    const [annotations, setAnnotations] = useState([]);
+    const [annotations, setAnnotations] = useState(existingAnnotations || []);
+    const [canvasObjects, setCanvasObjects] = useState({});
 
     // Predefined annotation tags based on construction document elements
     const annotationTags = [
@@ -28,6 +29,9 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange }) => {
 
         fabricCanvasRef.current = canvas;
 
+        // Clear existing objects and render existing annotations if any
+        canvas.clear();
+
         // Define updateAnnotations function first
         const updateAnnotations = () => {
             const objects = canvas.getObjects();
@@ -47,6 +51,61 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange }) => {
             setAnnotations(newAnnotations);
             onAnnotationsChange(newAnnotations);
         };
+
+        // Render existing annotations if provided
+        if (existingAnnotations && existingAnnotations.length > 0) {
+            existingAnnotations.forEach(annotation => {
+                const tagConfig = annotationTags.find(tag => tag.value === annotation.tag);
+                if (tagConfig) {
+                    // Create rectangle
+                    const rect = new fabric.Rect({
+                        left: annotation.left,
+                        top: annotation.top,
+                        originX: 'left',
+                        originY: 'top',
+                        width: annotation.width,
+                        height: annotation.height,
+                        angle: 0,
+                        fill: 'transparent',
+                        stroke: tagConfig.color,
+                        strokeWidth: 2,
+                        strokeDashArray: [5, 5],
+                        selectable: true,
+                        hasControls: true,
+                        hasBorders: true,
+                        // Custom properties for annotation
+                        annotationTag: annotation.tag,
+                        annotationLabel: annotation.label,
+                        annotationId: annotation.id
+                    });
+
+                    // Add text label
+                    const text = new fabric.Text(annotation.label, {
+                        left: annotation.left + 5,
+                        top: annotation.top + 5,
+                        fontSize: 12,
+                        fontWeight: 'bold',
+                        fill: tagConfig.color,
+                        backgroundColor: 'white',
+                        padding: 3,
+                        border: '1px solid ' + tagConfig.color,
+                        borderRadius: 3,
+                        selectable: false,
+                        hasControls: false
+                    });
+
+                    // Add both to canvas
+                    canvas.add(rect);
+                    canvas.add(text);
+                    
+                    // Store reference to canvas objects for deletion
+                    setCanvasObjects(prev => ({
+                        ...prev,
+                        [annotation.id]: { rect, text }
+                    }));
+                }
+            });
+        }
 
         // Load the background image
         if (imageUrl) {
@@ -105,7 +164,8 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange }) => {
                 // Custom properties for annotation
                 annotationTag: selectedTag,
                 annotationLabel: tagConfig.label,
-                annotationId: Date.now().toString()
+                annotationId: Date.now().toString(),
+                pageNumber: pageNumber  // Add page number to the object
             });
             
             canvas.add(rect);
@@ -134,6 +194,34 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange }) => {
             
             isDown = false;
             
+            // Add text label to the newly created rectangle
+            if (rect) {
+                const tagConfig = annotationTags.find(tag => tag.value === selectedTag);
+                if (tagConfig) {
+                    const text = new fabric.Text(tagConfig.label, {
+                        left: rect.left + 5,
+                        top: rect.top + 5,
+                        fontSize: 12,
+                        fontWeight: 'bold',
+                        fill: tagConfig.color,
+                        backgroundColor: 'white',
+                        padding: 3,
+                        border: '1px solid ' + tagConfig.color,
+                        borderRadius: 3,
+                        selectable: false,
+                        hasControls: false
+                    });
+                    
+                    canvas.add(text);
+                    
+                    // Store reference to canvas objects for deletion
+                    setCanvasObjects(prev => ({
+                        ...prev,
+                        [rect.annotationId]: { rect, text }
+                    }));
+                }
+            }
+            
             // Update annotations state
             updateAnnotations();
         });
@@ -145,7 +233,7 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange }) => {
         return () => {
             canvas.dispose();
         };
-    }, [imageUrl, pageNumber, selectedTag, isDrawing, onAnnotationsChange]);
+    }, [imageUrl, pageNumber, selectedTag, isDrawing, onAnnotationsChange, existingAnnotations]);
 
     const toggleDrawingMode = () => {
         setIsDrawing(!isDrawing);
@@ -172,7 +260,16 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange }) => {
             const activeObjects = fabricCanvasRef.current.getActiveObjects();
             activeObjects.forEach(obj => {
                 if (obj.annotationTag) {
+                    // Find the annotation ID
+                    const annotationId = obj.annotationId;
+                    // Remove the object from canvas
                     fabricCanvasRef.current.remove(obj);
+                    // Remove from canvasObjects state
+                    setCanvasObjects(prev => {
+                        const newObjects = { ...prev };
+                        delete newObjects[annotationId];
+                        return newObjects;
+                    });
                 }
             });
             fabricCanvasRef.current.discardActiveObject();
@@ -193,6 +290,27 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange }) => {
                     pageNumber: pageNumber
                 }));
             
+            setAnnotations(newAnnotations);
+            onAnnotationsChange(newAnnotations);
+        }
+    };
+
+    const deleteAnnotation = (annotationId) => {
+        if (fabricCanvasRef.current && canvasObjects[annotationId]) {
+            const { rect, text } = canvasObjects[annotationId];
+            fabricCanvasRef.current.remove(rect);
+            fabricCanvasRef.current.remove(text);
+            fabricCanvasRef.current.renderAll();
+            
+            // Remove from canvasObjects state
+            setCanvasObjects(prev => {
+                const newObjects = { ...prev };
+                delete newObjects[annotationId];
+                return newObjects;
+            });
+            
+            // Update annotations state
+            const newAnnotations = annotations.filter(ann => ann.id !== annotationId);
             setAnnotations(newAnnotations);
             onAnnotationsChange(newAnnotations);
         }
@@ -254,6 +372,13 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange }) => {
                             ({Math.round(annotation.left)}, {Math.round(annotation.top)}) 
                             {Math.round(annotation.width)} × {Math.round(annotation.height)}
                         </span>
+                        <button 
+                            onClick={() => deleteAnnotation(annotation.id)}
+                            className="delete-annotation-button"
+                            title="Delete this annotation"
+                        >
+                            🗑️
+                        </button>
                     </div>
                 ))}
             </div>
