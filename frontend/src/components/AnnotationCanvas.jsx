@@ -21,6 +21,12 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange, existingA
         { value: 'Other', label: 'Other', color: '#95A5A6' }
     ];
 
+    // Sync annotations state when existingAnnotations prop changes (page navigation)
+    useEffect(() => {
+        setAnnotations(existingAnnotations || []);
+        setCanvasObjects({}); // Reset canvas objects for new page
+    }, [existingAnnotations, pageNumber]);
+
     useEffect(() => {
         const canvas = new fabric.Canvas(canvasRef.current, {
             selection: true,
@@ -54,6 +60,7 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange, existingA
 
         // Render existing annotations if provided
         if (existingAnnotations && existingAnnotations.length > 0) {
+            const newCanvasObjects = {};
             existingAnnotations.forEach(annotation => {
                 const tagConfig = annotationTags.find(tag => tag.value === annotation.tag);
                 if (tagConfig) {
@@ -99,36 +106,41 @@ const AnnotationCanvas = ({ imageUrl, pageNumber, onAnnotationsChange, existingA
                     canvas.add(text);
                     
                     // Store reference to canvas objects for deletion
-                    setCanvasObjects(prev => ({
-                        ...prev,
-                        [annotation.id]: { rect, text }
-                    }));
+                    newCanvasObjects[annotation.id] = { rect, text };
                 }
             });
+            setCanvasObjects(newCanvasObjects);
         }
 
         // Load the background image
         if (imageUrl) {
             fabric.Image.fromURL(imageUrl, (img) => {
-                // Scale image to fit canvas while maintaining aspect ratio
-                const canvasWidth = 800;
-                const canvasHeight = 600;
+                // Check if canvas still exists and is properly initialized
+                if (!canvas || canvas._disposed || !canvas.upperCanvasEl || !canvas.lowerCanvasEl) return;
                 
-                const scaleX = canvasWidth / img.width;
-                const scaleY = canvasHeight / img.height;
-                const scale = Math.min(scaleX, scaleY);
+                try {
+                    // Scale image to fit canvas while maintaining aspect ratio
+                    const canvasWidth = 800;
+                    const canvasHeight = 600;
+                    
+                    const scaleX = canvasWidth / img.width;
+                    const scaleY = canvasHeight / img.height;
+                    const scale = Math.min(scaleX, scaleY);
 
-                img.scale(scale);
-                
-                // Set canvas dimensions to match scaled image
-                canvas.setWidth(img.width * scale);
-                canvas.setHeight(img.height * scale);
-                
-                // Set image as background
-                canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
-                    scaleX: scale,
-                    scaleY: scale,
-                });
+                    img.scale(scale);
+                    
+                    // Set canvas dimensions to match scaled image
+                    canvas.setWidth(img.width * scale);
+                    canvas.setHeight(img.height * scale);
+                    
+                    // Set image as background
+                    canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
+                        scaleX: scale,
+                        scaleY: scale,
+                    });
+                } catch (error) {
+                    console.warn('Canvas operation failed, likely due to component unmount:', error);
+                }
             });
         }
 
