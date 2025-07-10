@@ -237,6 +237,237 @@ def load_annotations(doc_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/save_summaries", methods=["POST", "OPTIONS"])
+def save_summaries():
+    """
+    Saves page summaries for a document to a JSON file.
+    """
+    print("\n--- Received request on /api/save_summaries ---")
+    
+    if request.method == "OPTIONS":
+        print("Handling preflight OPTIONS request for summaries")
+        return "", 200
+    
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data received"}), 400
+        
+        doc_id = data.get("docId")
+        summaries = data.get("summaries", {})
+        
+        if not doc_id:
+            return jsonify({"error": "Document ID is required"}), 400
+        
+        print(f"📝 Saving summaries for document: {doc_id}")
+        
+        doc_dir = os.path.join(app.config["PROCESSED_FOLDER"], doc_id)
+        if not os.path.exists(doc_dir):
+            return jsonify({"error": "Document not found"}), 404
+        
+        summaries_file = os.path.join(doc_dir, "summaries.json")
+        
+        summary_data = {
+            "docId": doc_id,
+            "timestamp": str(uuid.uuid4()),
+            "summaries": summaries,
+            "metadata": {
+                "totalPages": len(summaries),
+                "lastUpdated": str(uuid.uuid4())  # placeholder for actual timestamp
+            }
+        }
+        
+        import json
+        with open(summaries_file, 'w') as f:
+            json.dump(summary_data, f, indent=2)
+        
+        print(f"   ✅ Summaries saved to: {summaries_file}")
+        
+        return jsonify({
+            "message": "Summaries saved successfully",
+            "docId": doc_id,
+            "pageCount": len(summaries)
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ ERROR: Failed to save summaries: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/load_summaries/<doc_id>", methods=["GET"])
+def load_summaries(doc_id):
+    """
+    Loads page summaries for a document from JSON file.
+    """
+    print(f"\n--- Loading summaries for document: {doc_id} ---")
+    
+    try:
+        doc_dir = os.path.join(app.config["PROCESSED_FOLDER"], doc_id)
+        summaries_file = os.path.join(doc_dir, "summaries.json")
+        
+        if not os.path.exists(summaries_file):
+            print(f"   ⚠️  No summaries file found for document {doc_id}")
+            return jsonify({
+                "docId": doc_id,
+                "summaries": {},
+                "message": "No summaries found"
+            }), 200
+        
+        import json
+        with open(summaries_file, 'r') as f:
+            summary_data = json.load(f)
+        
+        print(f"   ✅ Loaded summaries for {len(summary_data.get('summaries', {}))} pages")
+        
+        return jsonify(summary_data), 200
+        
+    except Exception as e:
+        print(f"❌ ERROR: Failed to load summaries: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/generate_summary", methods=["POST", "OPTIONS"])
+def generate_summary():
+    """
+    Generates an AI summary for a specific page (placeholder implementation).
+    In a real implementation, this would extract text from the PDF page and use an LLM.
+    """
+    print("\n--- Received request on /api/generate_summary ---")
+    
+    if request.method == "OPTIONS":
+        print("Handling preflight OPTIONS request for summary generation")
+        return "", 200
+    
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data received"}), 400
+        
+        doc_id = data.get("docId")
+        page_number = data.get("pageNumber")
+        
+        if not doc_id or not page_number:
+            return jsonify({"error": "Document ID and page number are required"}), 400
+        
+        print(f"🤖 Generating AI summary for document: {doc_id}, page: {page_number}")
+        
+        # TODO: Implement actual text extraction and LLM summarization
+        # For now, return a placeholder summary
+        placeholder_summary = f"AI-generated summary for page {page_number}: This page contains construction document information including technical drawings, specifications, and project details. The content includes various building components, measurements, and construction notes that are relevant to the overall project scope."
+        
+        print(f"   ✅ Generated summary: {placeholder_summary[:50]}...")
+        
+        return jsonify({
+            "docId": doc_id,
+            "pageNumber": page_number,
+            "summary": placeholder_summary,
+            "generated": True
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ ERROR: Failed to generate summary: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/save_project_data", methods=["POST", "OPTIONS"])
+def save_project_data():
+    """
+    Saves complete project data including annotations, summaries, and pipeline state.
+    """
+    print("\n--- Received request on /api/save_project_data ---")
+    
+    if request.method == "OPTIONS":
+        print("Handling preflight OPTIONS request for project data")
+        return "", 200
+    
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data received"}), 400
+        
+        doc_id = data.get("docId")
+        project_data = data.get("projectData", {})
+        
+        if not doc_id:
+            return jsonify({"error": "Document ID is required"}), 400
+        
+        print(f"💾 Saving project data for document: {doc_id}")
+        
+        doc_dir = os.path.join(app.config["PROCESSED_FOLDER"], doc_id)
+        if not os.path.exists(doc_dir):
+            return jsonify({"error": "Document not found"}), 404
+        
+        project_file = os.path.join(doc_dir, "project_data.json")
+        
+        complete_project_data = {
+            "docId": doc_id,
+            "timestamp": str(uuid.uuid4()),
+            "projectData": project_data,
+            "metadata": {
+                "version": "1.0",
+                "lastUpdated": str(uuid.uuid4()),  # placeholder for actual timestamp
+                "pipeline_stage": "define_key_areas"  # this would be dynamic
+            }
+        }
+        
+        import json
+        with open(project_file, 'w') as f:
+            json.dump(complete_project_data, f, indent=2)
+        
+        print(f"   ✅ Project data saved to: {project_file}")
+        
+        return jsonify({
+            "message": "Project data saved successfully",
+            "docId": doc_id,
+            "savedTo": project_file
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ ERROR: Failed to save project data: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/load_project_data/<doc_id>", methods=["GET"])
+def load_project_data(doc_id):
+    """
+    Loads complete project data for a document.
+    """
+    print(f"\n--- Loading project data for document: {doc_id} ---")
+    
+    try:
+        doc_dir = os.path.join(app.config["PROCESSED_FOLDER"], doc_id)
+        project_file = os.path.join(doc_dir, "project_data.json")
+        
+        if not os.path.exists(project_file):
+            print(f"   ⚠️  No project data file found for document {doc_id}")
+            return jsonify({
+                "docId": doc_id,
+                "projectData": {
+                    "keyAreas": {},
+                    "summaries": {},
+                    "knowledgeGraph": None,
+                    "scopeGroups": [],
+                    "scopeAnnotations": {}
+                },
+                "message": "No project data found"
+            }), 200
+        
+        import json
+        with open(project_file, 'r') as f:
+            project_data = json.load(f)
+        
+        print(f"   ✅ Loaded project data")
+        
+        return jsonify(project_data), 200
+        
+    except Exception as e:
+        print(f"❌ ERROR: Failed to load project data: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/data/processed/<path:path>")
 def serve_processed_file(path):
     """
