@@ -11,9 +11,18 @@ const DefineKeyAreasTab = ({
 }) => {
     const [selectedTool, setSelectedTool] = useState(null);
     const [isDrawing, setIsDrawing] = useState(false);
+    const [drawingPage, setDrawingPage] = useState(null); // Track which page is in drawing mode
     const [canvasRefs, setCanvasRefs] = useState({});
     const [fabricCanvases, setFabricCanvases] = useState({});
     const [editingSummary, setEditingSummary] = useState({});
+    
+    // Use refs to store current state for event handlers
+    const stateRef = useRef({ selectedTool: null, isDrawing: false, drawingPage: null });
+
+    // Update ref whenever state changes
+    useEffect(() => {
+        stateRef.current = { selectedTool, isDrawing, drawingPage };
+    }, [selectedTool, isDrawing, drawingPage]);
 
     const annotationTools = [
         { id: 'TitleBlock', label: 'Title Block', color: '#FF6B6B', icon: '📋' },
@@ -23,12 +32,32 @@ const DefineKeyAreasTab = ({
     ];
 
     useEffect(() => {
-        // Initialize canvases for all pages after component mounts
-        const timer = setTimeout(() => {
+        let attempts = 0;
+        const maxAttempts = 5;
+        
+        const initializeAllCanvases = () => {
+            attempts++;
+            console.log(`Canvas initialization attempt ${attempts}`);
+            
+            let successCount = 0;
             for (let pageNum = 1; pageNum <= docInfo.pageCount; pageNum++) {
-                initializeCanvas(pageNum);
+                const canvasElement = document.getElementById(`canvas-${pageNum}`);
+                if (canvasElement && !fabricCanvases[pageNum]) {
+                    initializeCanvas(pageNum);
+                    successCount++;
+                }
             }
-        }, 100);
+            
+            console.log(`Initialized ${successCount} canvases on attempt ${attempts}`);
+            
+            // Retry if not all canvases were initialized and we haven't exceeded max attempts
+            if (successCount < docInfo.pageCount && attempts < maxAttempts) {
+                setTimeout(initializeAllCanvases, 500);
+            }
+        };
+        
+        // Start initialization after a delay
+        const timer = setTimeout(initializeAllCanvases, 300);
 
         return () => {
             clearTimeout(timer);
@@ -37,13 +66,23 @@ const DefineKeyAreasTab = ({
                 if (canvas) canvas.dispose();
             });
         };
-    }, [docInfo.pageCount]);
+    }, [docInfo.pageCount, docInfo.docId]);
 
     const initializeCanvas = (pageNumber) => {
         const canvasId = `canvas-${pageNumber}`;
         const canvasElement = document.getElementById(canvasId);
         
-        if (!canvasElement || fabricCanvases[pageNumber]) return;
+        if (!canvasElement) {
+            console.log(`Canvas element not found for page ${pageNumber}`);
+            return;
+        }
+        
+        if (fabricCanvases[pageNumber]) {
+            console.log(`Canvas already exists for page ${pageNumber}`);
+            return;
+        }
+
+        console.log(`Initializing canvas for page ${pageNumber}`);
 
         const canvas = new fabric.Canvas(canvasElement, {
             selection: true,
@@ -52,10 +91,12 @@ const DefineKeyAreasTab = ({
             height: 800
         });
 
-        setFabricCanvases(prev => ({
-            ...prev,
-            [pageNumber]: canvas
-        }));
+        // Store canvas in state immediately
+        setFabricCanvases(prev => {
+            const newCanvases = { ...prev, [pageNumber]: canvas };
+            console.log('Updated canvases:', Object.keys(newCanvases));
+            return newCanvases;
+        });
 
         // Load background image
         const imageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}.png`;
@@ -99,8 +140,10 @@ const DefineKeyAreasTab = ({
             }
         });
 
-        // Setup drawing interactions
+        // Setup basic canvas interactions
         setupCanvasInteractions(canvas, pageNumber);
+        
+        console.log(`Canvas ${pageNumber} initialized and interactions set up`);
     };
 
     const setupCanvasInteractions = (canvas, pageNumber) => {
@@ -108,15 +151,31 @@ const DefineKeyAreasTab = ({
         let origX, origY;
         let rect;
 
+        // Store page number on canvas for reference
+        canvas.pageNumber = pageNumber;
+
         canvas.on('mouse:down', (o) => {
-            if (!selectedTool || !isDrawing) return;
+            // Get current state from ref
+            const { selectedTool: currentTool, isDrawing: currentDrawing, drawingPage: currentDrawingPage } = stateRef.current;
+            
+            console.log(`Canvas ${pageNumber} clicked`);
+            console.log('Current state from ref:', { currentTool, currentDrawing, currentDrawingPage });
+            
+            // Only allow drawing if we're in drawing mode AND this is the correct page
+            if (!currentTool || !currentDrawing || currentDrawingPage !== pageNumber) {
+                console.log(`Canvas click blocked for page ${pageNumber}`);
+                return;
+            }
+            
+            console.log(`Starting to draw ${currentTool} on page ${pageNumber}`);
             
             isDown = true;
             const pointer = canvas.getPointer(o.e);
             origX = pointer.x;
             origY = pointer.y;
             
-            const tool = annotationTools.find(t => t.id === selectedTool);
+            const tool = annotationTools.find(t => t.id === currentTool);
+            if (!tool) return;
             
             rect = new fabric.Rect({
                 left: origX,
@@ -127,44 +186,64 @@ const DefineKeyAreasTab = ({
                 height: 1,
                 fill: 'transparent',
                 stroke: tool.color,
-                strokeWidth: 2,
-                strokeDashArray: [5, 5],
+                strokeWidth: 3,
+                strokeDashArray: [8, 4],
                 selectable: true,
                 hasControls: true,
                 hasBorders: true,
-                annotationTag: selectedTool,
-                annotationId: Date.now().toString()
+                annotationTag: currentTool,
+                annotationId: `${Date.now()}-${pageNumber}`
             });
             
             canvas.add(rect);
+            canvas.setActiveObject(rect);
+            canvas.requestRenderAll();
         });
 
         canvas.on('mouse:move', (o) => {
-            if (!isDown || !isDrawing) return;
+            if (!isDown || !rect) return;
             
             const pointer = canvas.getPointer(o.e);
             
-            if (origX > pointer.x) {
-                rect.set({ left: Math.abs(pointer.x) });
-            }
-            if (origY > pointer.y) {
-                rect.set({ top: Math.abs(pointer.y) });
-            }
+            // Calculate the rectangle dimensions
+            const left = Math.min(origX, pointer.x);
+            const top = Math.min(origY, pointer.y);
+            const width = Math.abs(origX - pointer.x);
+            const height = Math.abs(origY - pointer.y);
             
-            rect.set({ width: Math.abs(origX - pointer.x) });
-            rect.set({ height: Math.abs(origY - pointer.y) });
+            rect.set({ 
+                left: left,
+                top: top,
+                width: width, 
+                height: height 
+            });
             
-            canvas.renderAll();
+            canvas.requestRenderAll();
         });
 
         canvas.on('mouse:up', () => {
-            if (!isDown || !isDrawing) return;
+            if (!isDown) return;
             isDown = false;
             
-            // Update annotations
-            updateAnnotationsFromCanvas(canvas, pageNumber);
+            console.log('Mouse up - finishing annotation');
+            
+            // Only finish drawing if we actually created a meaningful rectangle
+            if (rect && (rect.width > 10 && rect.height > 10)) {
+                console.log('Creating annotation with dimensions:', rect.width, 'x', rect.height);
+                // Update annotations
+                updateAnnotationsFromCanvas(canvas, pageNumber);
+            } else if (rect) {
+                console.log('Removing small rectangle');
+                // Remove tiny rectangles
+                canvas.remove(rect);
+            }
+            
+            // Reset drawing state
+            rect = null;
             setIsDrawing(false);
             setSelectedTool(null);
+            setDrawingPage(null);
+            canvas.requestRenderAll();
         });
 
         canvas.on('object:modified', () => {
@@ -189,9 +268,21 @@ const DefineKeyAreasTab = ({
         onAnnotationsChange(pageNumber, annotations);
     };
 
-    const startDrawing = (toolId) => {
+    const startDrawing = (toolId, pageNumber) => {
+        console.log(`Starting drawing mode: ${toolId} on page ${pageNumber}`);
         setSelectedTool(toolId);
         setIsDrawing(true);
+        setDrawingPage(pageNumber);
+        
+        // Focus on the specific page canvas
+        const canvas = fabricCanvases[pageNumber];
+        if (canvas) {
+            canvas.discardActiveObject();
+            canvas.renderAll();
+            console.log(`Canvas found and focused for page ${pageNumber}`);
+        } else {
+            console.log(`No canvas found for page ${pageNumber}`);
+        }
     };
 
     const deleteAnnotation = (pageNumber, annotationId) => {
@@ -224,57 +315,58 @@ const DefineKeyAreasTab = ({
     };
 
     const getThumbnailForAnnotation = (annotation) => {
-        // This would generate a thumbnail from the canvas area
-        // For now, return a placeholder
-        return 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+        // Generate a simple colored thumbnail representing the annotation
+        const tool = annotationTools.find(t => t.id === annotation.tag);
+        const color = tool?.color || '#ccc';
+        
+        // Create a simple SVG thumbnail without emojis to avoid btoa encoding issues
+        const svg = `
+            <svg width="40" height="30" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="2" width="36" height="26" fill="transparent" stroke="${color}" stroke-width="2" stroke-dasharray="3,2"/>
+                <circle cx="20" cy="15" r="3" fill="${color}"/>
+            </svg>
+        `;
+        
+        // Use encodeURIComponent instead of btoa to handle any characters safely
+        return `data:image/svg+xml,${encodeURIComponent(svg)}`;
     };
 
     const renderSidebar = () => (
         <div className="sidebar">
-            <div className="annotation-tools">
-                <h3>Key Area Tools</h3>
-                {annotationTools.map(tool => (
-                    <button
-                        key={tool.id}
-                        className={`tool-button ${selectedTool === tool.id ? 'active' : ''}`}
-                        onClick={() => startDrawing(tool.id)}
-                        style={{ borderColor: tool.color }}
-                    >
-                        {tool.icon} {tool.label}
-                    </button>
-                ))}
-            </div>
-
             <div className="annotation-list">
-                <h3>Annotations</h3>
-                {Object.entries(allAnnotations).map(([pageNumber, pageAnnotations]) => (
-                    <div key={pageNumber} className="page-annotations">
-                        <h4>Page {pageNumber}</h4>
-                        {pageAnnotations.map(annotation => {
-                            const tool = annotationTools.find(t => t.id === annotation.tag);
-                            return (
-                                <div key={annotation.id} className="annotation-item">
-                                    <img 
-                                        src={getThumbnailForAnnotation(annotation)}
-                                        alt={`${tool?.label} thumbnail`}
-                                        className="annotation-thumbnail"
-                                    />
-                                    <div className="annotation-info">
-                                        <span style={{ color: tool?.color }}>
-                                            {tool?.icon} {tool?.label}
-                                        </span>
-                                        <button 
-                                            onClick={() => deleteAnnotation(parseInt(pageNumber), annotation.id)}
-                                            className="delete-btn"
-                                        >
-                                            🗑️
-                                        </button>
+                <h3>All Annotations</h3>
+                {Object.keys(allAnnotations).length === 0 ? (
+                    <p className="empty-state">No annotations yet. Use the "Add" buttons next to each page to create key area annotations.</p>
+                ) : (
+                    Object.entries(allAnnotations).map(([pageNumber, pageAnnotations]) => (
+                        <div key={pageNumber} className="page-annotations">
+                            <h4>Page {pageNumber}</h4>
+                            {pageAnnotations.map(annotation => {
+                                const tool = annotationTools.find(t => t.id === annotation.tag);
+                                return (
+                                    <div key={annotation.id} className="annotation-item">
+                                        <img 
+                                            src={getThumbnailForAnnotation(annotation)}
+                                            alt={`${tool?.label} thumbnail`}
+                                            className="annotation-thumbnail"
+                                        />
+                                        <div className="annotation-info">
+                                            <span style={{ color: tool?.color }}>
+                                                {tool?.icon} {tool?.label}
+                                            </span>
+                                            <button 
+                                                onClick={() => deleteAnnotation(parseInt(pageNumber), annotation.id)}
+                                                className="delete-btn"
+                                            >
+                                                🗑️
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                ))}
+                                );
+                            })}
+                        </div>
+                    ))
+                )}
             </div>
 
             <div className="generate-section">
@@ -338,20 +430,40 @@ const DefineKeyAreasTab = ({
 
                 <div className="page-sections">
                     <div className="title-block">
-                        <h4>Title Block:</h4>
-                        <button className="add-button">Add</button>
+                        <h4>📋 Title Block:</h4>
+                        <button 
+                            className={`add-button ${selectedTool === 'TitleBlock' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
+                            onClick={() => startDrawing('TitleBlock', pageNumber)}
+                        >
+                            {selectedTool === 'TitleBlock' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
+                        </button>
                     </div>
                     <div className="drawing-area">
-                        <h4>Drawing Area:</h4>
-                        <button className="add-button">Add</button>
+                        <h4>📐 Drawing Area:</h4>
+                        <button 
+                            className={`add-button ${selectedTool === 'DrawingArea' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
+                            onClick={() => startDrawing('DrawingArea', pageNumber)}
+                        >
+                            {selectedTool === 'DrawingArea' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
+                        </button>
                     </div>
                     <div className="notes-area">
-                        <h4>Notes Area:</h4>
-                        <button className="add-button">Add</button>
+                        <h4>📝 Notes Area:</h4>
+                        <button 
+                            className={`add-button ${selectedTool === 'NotesArea' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
+                            onClick={() => startDrawing('NotesArea', pageNumber)}
+                        >
+                            {selectedTool === 'NotesArea' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
+                        </button>
                     </div>
                     <div className="legend">
-                        <h4>Legend:</h4>
-                        <button className="add-button">Add</button>
+                        <h4>🗺️ Legend:</h4>
+                        <button 
+                            className={`add-button ${selectedTool === 'Legend' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
+                            onClick={() => startDrawing('Legend', pageNumber)}
+                        >
+                            {selectedTool === 'Legend' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
+                        </button>
                     </div>
                 </div>
             </div>

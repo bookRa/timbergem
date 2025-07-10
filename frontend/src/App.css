@@ -167,35 +167,7 @@ body {
     padding-bottom: 8px;
 }
 
-/* Annotation tools */
-.annotation-tools {
-    flex-shrink: 0;
-}
-
-.tool-button {
-    display: block;
-    width: 100%;
-    padding: 12px 15px;
-    margin-bottom: 8px;
-    background: white;
-    border: 2px solid #e1e5e9;
-    border-radius: 6px;
-    cursor: pointer;
-    text-align: left;
-    transition: all 0.2s;
-    font-size: 14px;
-}
-
-.tool-button:hover {
-    border-color: #007bff;
-    background: #e7f3ff;
-}
-
-.tool-button.active {
-    border-color: #007bff;
-    background: #007bff;
-    color: white;
-}
+/* Annotation tools (removed - now using per-page Add buttons) */
 
 /* Annotation list */
 .annotation-list {
@@ -426,6 +398,26 @@ body {
 
 .add-button:hover {
     background: #0056b3;
+}
+
+.add-button.active {
+    background: #dc3545;
+    color: white;
+    font-weight: 600;
+}
+
+.add-button.active:hover {
+    background: #c82333;
+}
+
+.empty-state {
+    color: #6c757d;
+    font-style: italic;
+    padding: 20px;
+    text-align: center;
+    background: #f8f9fa;
+    border-radius: 6px;
+    border: 1px dashed #e1e5e9;
 }
 
 /* Placeholder tabs */
