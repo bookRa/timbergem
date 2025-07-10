@@ -197,6 +197,22 @@ body {
     border: 1px solid #e1e5e9;
     border-radius: 4px;
     margin-bottom: 6px;
+    transition: all 0.2s;
+}
+
+.annotation-item:hover {
+    background: #f8f9fa;
+    border-color: #007bff;
+}
+
+.annotation-item.selected {
+    background: #e7f3ff;
+    border-color: #007bff;
+    box-shadow: 0 2px 4px rgba(0, 123, 255, 0.2);
+}
+
+.annotation-item.selected:hover {
+    background: #d6edff;
 }
 
 .annotation-thumbnail {

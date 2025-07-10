@@ -15,6 +15,7 @@ const DefineKeyAreasTab = ({
     const [canvasRefs, setCanvasRefs] = useState({});
     const [fabricCanvases, setFabricCanvases] = useState({});
     const [editingSummary, setEditingSummary] = useState({});
+    const [selectedAnnotation, setSelectedAnnotation] = useState(null); // Track selected annotation
     
     // Use refs to store current state for event handlers
     const stateRef = useRef({ selectedTool: null, isDrawing: false, drawingPage: null });
@@ -127,8 +128,9 @@ const DefineKeyAreasTab = ({
                     height: annotation.height,
                     fill: 'transparent',
                     stroke: tool.color,
-                    strokeWidth: 2,
-                    strokeDashArray: [5, 5],
+                    strokeWidth: 3,
+                    strokeDashArray: [8, 4],
+                    strokeUniform: true, // Keep stroke width consistent during scaling
                     selectable: true,
                     hasControls: true,
                     hasBorders: true,
@@ -188,6 +190,7 @@ const DefineKeyAreasTab = ({
                 stroke: tool.color,
                 strokeWidth: 3,
                 strokeDashArray: [8, 4],
+                strokeUniform: true, // Keep stroke width consistent during scaling
                 selectable: true,
                 hasControls: true,
                 hasBorders: true,
@@ -249,6 +252,28 @@ const DefineKeyAreasTab = ({
         canvas.on('object:modified', () => {
             updateAnnotationsFromCanvas(canvas, pageNumber);
         });
+
+        // Handle annotation selection
+        canvas.on('selection:created', (e) => {
+            const selectedObject = e.selected[0];
+            if (selectedObject && selectedObject.annotationId) {
+                console.log('Annotation selected on canvas:', selectedObject.annotationId);
+                setSelectedAnnotation(selectedObject.annotationId);
+            }
+        });
+
+        canvas.on('selection:updated', (e) => {
+            const selectedObject = e.selected[0];
+            if (selectedObject && selectedObject.annotationId) {
+                console.log('Annotation selection updated:', selectedObject.annotationId);
+                setSelectedAnnotation(selectedObject.annotationId);
+            }
+        });
+
+        canvas.on('selection:cleared', () => {
+            console.log('Canvas selection cleared');
+            setSelectedAnnotation(null);
+        });
     };
 
     const updateAnnotationsFromCanvas = (canvas, pageNumber) => {
@@ -293,6 +318,37 @@ const DefineKeyAreasTab = ({
         if (objectToRemove) {
             canvas.remove(objectToRemove);
             updateAnnotationsFromCanvas(canvas, pageNumber);
+            
+            // Clear selection if the deleted annotation was selected
+            if (selectedAnnotation === annotationId) {
+                setSelectedAnnotation(null);
+            }
+        }
+    };
+
+    const selectAnnotationFromSidebar = (pageNumber, annotationId) => {
+        console.log(`Selecting annotation ${annotationId} on page ${pageNumber} from sidebar`);
+        
+        // Scroll to the page
+        const pageElement = document.getElementById(`page-content-${pageNumber}`);
+        if (pageElement) {
+            pageElement.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center' 
+            });
+        }
+
+        // Select the annotation on the canvas
+        const canvas = fabricCanvases[pageNumber];
+        if (canvas) {
+            const objectToSelect = canvas.getObjects().find(obj => obj.annotationId === annotationId);
+            if (objectToSelect) {
+                canvas.discardActiveObject();
+                canvas.setActiveObject(objectToSelect);
+                canvas.requestRenderAll();
+                setSelectedAnnotation(annotationId);
+                console.log('Annotation selected and page scrolled');
+            }
         }
     };
 
@@ -343,8 +399,14 @@ const DefineKeyAreasTab = ({
                             <h4>Page {pageNumber}</h4>
                             {pageAnnotations.map(annotation => {
                                 const tool = annotationTools.find(t => t.id === annotation.tag);
+                                const isSelected = selectedAnnotation === annotation.id;
                                 return (
-                                    <div key={annotation.id} className="annotation-item">
+                                    <div 
+                                        key={annotation.id} 
+                                        className={`annotation-item ${isSelected ? 'selected' : ''}`}
+                                        onClick={() => selectAnnotationFromSidebar(parseInt(pageNumber), annotation.id)}
+                                        style={{ cursor: 'pointer' }}
+                                    >
                                         <img 
                                             src={getThumbnailForAnnotation(annotation)}
                                             alt={`${tool?.label} thumbnail`}
@@ -355,7 +417,10 @@ const DefineKeyAreasTab = ({
                                                 {tool?.icon} {tool?.label}
                                             </span>
                                             <button 
-                                                onClick={() => deleteAnnotation(parseInt(pageNumber), annotation.id)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation(); // Prevent triggering selection
+                                                    deleteAnnotation(parseInt(pageNumber), annotation.id);
+                                                }}
                                                 className="delete-btn"
                                             >
                                                 🗑️
@@ -378,7 +443,7 @@ const DefineKeyAreasTab = ({
     );
 
     const renderPageContent = (pageNumber) => (
-        <div key={pageNumber} className="page-content">
+        <div key={pageNumber} id={`page-content-${pageNumber}`} className="page-content">
             <div className="page-header">
                 <h3>Page {pageNumber}</h3>
             </div>
