@@ -171,8 +171,6 @@ timbergem/
 -   [x] **M1.2:** Create a paginated view in the frontend to display document images.
 -   [x] **M1.3:** **(`main` branch)** Integrate Fabric.js/Konva.js into a React component.
 -   [x] **M1.3:** **(`main` branch)** Implement bounding box drawing and tagging functionality.
--   [ ] **M1.3:** **(`feature/label-studio` branch)** Setup Label Studio and create a project template.
--   [ ] **M1.3:** **(`feature/label-studio` branch)** Implement API calls to push tasks to Label Studio.
 -   [x] **M1.3:** Create `/api/save_annotations` endpoint.
 -   [x] **M1.3:** Implement frontend logic to post annotation data to the backend.
 
