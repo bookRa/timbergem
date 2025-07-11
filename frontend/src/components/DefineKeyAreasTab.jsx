@@ -16,6 +16,7 @@ const DefineKeyAreasTab = ({
     const [fabricCanvases, setFabricCanvases] = useState({});
     const [editingSummary, setEditingSummary] = useState({});
     const [selectedAnnotation, setSelectedAnnotation] = useState(null); // Track selected annotation
+    const [canvasDimensions, setCanvasDimensions] = useState({}); // Track canvas dimensions for coordinate mapping
     
     // Use refs to store current state for event handlers
     const stateRef = useRef({ selectedTool: null, isDrawing: false, drawingPage: null });
@@ -107,8 +108,22 @@ const DefineKeyAreasTab = ({
             const scale = Math.min(600 / img.width, 800 / img.height);
             img.scale(scale);
             
-            canvas.setWidth(img.width * scale);
-            canvas.setHeight(img.height * scale);
+            const actualCanvasWidth = img.width * scale;
+            const actualCanvasHeight = img.height * scale;
+            
+            canvas.setWidth(actualCanvasWidth);
+            canvas.setHeight(actualCanvasHeight);
+            
+            // Store canvas dimensions for coordinate mapping - these MUST match what annotations use
+            setCanvasDimensions(prev => ({
+                ...prev,
+                [pageNumber]: {
+                    width: actualCanvasWidth,
+                    height: actualCanvasHeight
+                }
+            }));
+            
+            console.log(`Canvas ${pageNumber} initialized: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)} (scale: ${scale.toFixed(3)})`);
             
             canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
                 scaleX: scale,
@@ -370,6 +385,87 @@ const DefineKeyAreasTab = ({
         }
     };
 
+    const generateHighResClippings = async () => {
+        try {
+            // Collect all annotations from all pages
+            const allAnnotationsFlat = [];
+            Object.entries(allAnnotations).forEach(([pageNumber, pageAnnotations]) => {
+                pageAnnotations.forEach(annotation => {
+                    allAnnotationsFlat.push(annotation);
+                });
+            });
+
+            if (allAnnotationsFlat.length === 0) {
+                alert('No annotations to process. Please create some key area annotations first.');
+                return;
+            }
+
+            console.log('🔍 FRONTEND DEBUG - Generating clippings for annotations:', allAnnotationsFlat);
+            console.log('🔍 FRONTEND DEBUG - Canvas dimensions:', canvasDimensions);
+            
+            // Debug: log annotation details for verification
+            allAnnotationsFlat.forEach((annotation, index) => {
+                const pageDims = canvasDimensions[annotation.pageNumber];
+                console.log(`🔍 FRONTEND DEBUG - Annotation ${index + 1} (${annotation.tag} on page ${annotation.pageNumber}):`);
+                console.log(`  📍 Coords: (${annotation.left}, ${annotation.top}) ${annotation.width}x${annotation.height}`);
+                console.log(`  📐 Canvas dims: ${pageDims?.width}x${pageDims?.height}`);
+                
+                // Get the actual canvas element and check its properties
+                const canvasElement = document.getElementById(`canvas-${annotation.pageNumber}`);
+                if (canvasElement) {
+                    console.log(`  🖼️  Canvas element: ${canvasElement.width}x${canvasElement.height} (actual DOM)`);
+                    console.log(`  📏 Canvas style: ${canvasElement.style.width} x ${canvasElement.style.height}`);
+                    
+                    // Check if there's a Fabric canvas and get its dimensions
+                    const fabricCanvas = fabricCanvases[annotation.pageNumber];
+                    if (fabricCanvas) {
+                        console.log(`  🎨 Fabric canvas: ${fabricCanvas.width}x${fabricCanvas.height}`);
+                        console.log(`  🖼️  Background image:`, fabricCanvas.backgroundImage ? 
+                            `${fabricCanvas.backgroundImage.width}x${fabricCanvas.backgroundImage.height} (scale: ${fabricCanvas.backgroundImage.scaleX}x${fabricCanvas.backgroundImage.scaleY})` : 
+                            'None');
+                        
+                        // Get all objects on the canvas for comparison
+                        const objects = fabricCanvas.getObjects();
+                        console.log(`  📦 Canvas objects (${objects.length}):`);
+                        objects.forEach((obj, objIndex) => {
+                            if (obj.annotationTag) {
+                                console.log(`    ${objIndex + 1}. ${obj.annotationTag}: (${obj.left}, ${obj.top}) ${obj.width}x${obj.height}`);
+                            }
+                        });
+                    }
+                }
+            });
+
+            const response = await fetch('/api/generate_clippings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    docId: docInfo.docId,
+                    annotations: allAnnotationsFlat,
+                    canvasDimensions: canvasDimensions
+                })
+            });
+
+            const data = await response.json();
+            
+            if (response.ok) {
+                console.log('Clippings generated successfully:', data);
+                alert(`✅ Generated ${data.clippings.length} high-resolution clippings!`);
+                
+                // Still call the original save function
+                if (onSaveData) {
+                    await onSaveData();
+                }
+            } else {
+                console.error('Failed to generate clippings:', data.error);
+                alert(`❌ Failed to generate clippings: ${data.error}`);
+            }
+        } catch (err) {
+            console.error('Error generating clippings:', err);
+            alert('❌ Error generating clippings. Check console for details.');
+        }
+    };
+
     const getThumbnailForAnnotation = (annotation) => {
         // Generate a simple colored thumbnail representing the annotation
         const tool = annotationTools.find(t => t.id === annotation.tag);
@@ -435,7 +531,7 @@ const DefineKeyAreasTab = ({
             </div>
 
             <div className="generate-section">
-                <button onClick={onSaveData} className="generate-button">
+                <button onClick={generateHighResClippings} className="generate-button">
                     Generate Knowledge Graph
                 </button>
             </div>
@@ -490,6 +586,7 @@ const DefineKeyAreasTab = ({
                     <canvas 
                         id={`canvas-${pageNumber}`}
                         className="page-canvas"
+                        data-page={pageNumber}
                     />
                 </div>
 
