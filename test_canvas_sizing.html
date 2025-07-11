@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Canvas Sizing Test</title>
+    <style>
+        .container { display: flex; gap: 20px; margin: 20px; }
+        .test-case { border: 1px solid #ccc; padding: 10px; }
+        .canvas-container { border: 2px solid red; display: inline-block; }
+        canvas { border: 1px solid blue; }
+    </style>
+</head>
+<body>
+    <h1>Canvas Sizing Logic Test</h1>
+    
+    <div class="container">
+        <div class="test-case">
+            <h3>OLD Logic: Fixed 600x800</h3>
+            <p>Landscape 7200x4800 → 600x400 (squashed)</p>
+            <div class="canvas-container">
+                <canvas id="old" width="600" height="400" style="background: lightcoral;"></canvas>
+            </div>
+            <p>Scale: 0.083 (too small)</p>
+        </div>
+        
+        <div class="test-case">
+            <h3>NEW Logic: Dynamic Aspect Ratio</h3>
+            <p>Landscape 7200x4800 → 800x533 (correct ratio)</p>
+            <div class="canvas-container">
+                <canvas id="new" width="800" height="533" style="background: lightgreen;"></canvas>
+            </div>
+            <p>Scale: 0.111 (better fit)</p>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="test-case">
+            <h3>Portrait Example</h3>
+            <p>Portrait 4800x7200 → 400x600 (fit to height)</p>
+            <div class="canvas-container">
+                <canvas id="portrait" width="400" height="600" style="background: lightblue;"></canvas>
+            </div>
+            <p>Aspect ratio preserved!</p>
+        </div>
+    </div>
+    
+    <script>
+        // Calculate new sizing logic
+        function calculateOptimalSize(imageWidth, imageHeight) {
+            const imageAspectRatio = imageWidth / imageHeight;
+            const maxCanvasWidth = 800;
+            const maxCanvasHeight = 600;
+            
+            let actualCanvasWidth, actualCanvasHeight, scale;
+            
+            if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
+                // Image is wider (landscape) - fit to width
+                actualCanvasWidth = maxCanvasWidth;
+                actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
+                scale = maxCanvasWidth / imageWidth;
+            } else {
+                // Image is taller (portrait) - fit to height
+                actualCanvasHeight = maxCanvasHeight;
+                actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
+                scale = maxCanvasHeight / imageHeight;
+            }
+            
+            return { width: actualCanvasWidth, height: actualCanvasHeight, scale };
+        }
+        
+        // Test landscape document
+        const landscape = calculateOptimalSize(7200, 4800);
+        console.log('Landscape 7200x4800:', landscape);
+        
+        // Test portrait document  
+        const portrait = calculateOptimalSize(4800, 7200);
+        console.log('Portrait 4800x7200:', portrait);
+        
+        // Draw example content
+        const canvases = ['old', 'new', 'portrait'];
+        canvases.forEach(id => {
+            const canvas = document.getElementById(id);
+            const ctx = canvas.getContext('2d');
+            
+            // Draw title block area (top-right)
+            ctx.strokeStyle = '#FF6B6B';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([8, 4]);
+            
+            const titleX = canvas.width * 0.7;
+            const titleY = canvas.height * 0.1;
+            const titleW = canvas.width * 0.25;
+            const titleH = canvas.height * 0.3;
+            
+            ctx.strokeRect(titleX, titleY, titleW, titleH);
+            ctx.fillStyle = '#FF6B6B';
+            ctx.font = '12px Arial';
+            ctx.fillText('Title Block', titleX + 5, titleY + 15);
+        });
+    </script>
+</body>
+</html> 

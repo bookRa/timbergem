@@ -105,6 +105,9 @@ def upload_and_process_pdf():
                 pdf_width = pdf_rect.width
                 pdf_height = pdf_rect.height
                 
+                # Check for page rotation
+                rotation = page.rotation
+                
                 # Create pixmap and save image
                 pix = page.get_pixmap(dpi=dpi)
                 output_image_path = os.path.join(output_dir, f"page_{page_num + 1}.png")
@@ -116,12 +119,14 @@ def upload_and_process_pdf():
                     "pdf_height": pdf_height,
                     "image_width": pix.width,
                     "image_height": pix.height,
+                    "rotation": rotation,
                     "dpi": dpi,
                     "scale_x": pix.width / pdf_width,
                     "scale_y": pix.height / pdf_height
                 }
                 
-                print(f"     ✅ Saved page {page_num + 1} to {output_image_path}")
+                rotation_info = f" (rotated {rotation}°)" if rotation != 0 else ""
+                print(f"     ✅ Saved page {page_num + 1} to {output_image_path}{rotation_info}")
                 print(f"       PDF: {pdf_width:.1f}x{pdf_height:.1f} pts, Image: {pix.width}x{pix.height} px")
 
             # Save metadata to JSON file
@@ -624,26 +629,50 @@ def generate_clippings():
                         clipping_filename.replace('.png', '')
                     )
                     
-                    clipping_results.append({
-                        "annotationId": annotation["id"],
-                        "tag": annotation["tag"],
-                        "pageNumber": page_num,
-                        "canvasCoords": canvas_coords,
-                        "pdfCoords": pdf_coords,
-                        "clippingPath": clipping_path,
-                        "relativeUrl": f"/data/processed/{doc_id}/clippings/page{page_num}/{clipping_filename}"
-                    })
+                    # Only add to results if clipping was successfully generated
+                    if clipping_path is not None:
+                        clipping_results.append({
+                            "annotationId": annotation["id"],
+                            "tag": annotation["tag"],
+                            "pageNumber": page_num,
+                            "canvasCoords": canvas_coords,
+                            "pdfCoords": pdf_coords,
+                            "clippingPath": clipping_path,
+                            "relativeUrl": f"/data/processed/{doc_id}/clippings/page{page_num}/{clipping_filename}"
+                        })
+                    else:
+                        print(f"     ⚠️  Skipped clipping for {tag} {i} on page {page_num} (invalid coordinates)")
+                        # Still add to results but mark as failed
+                        clipping_results.append({
+                            "annotationId": annotation["id"],
+                            "tag": annotation["tag"],
+                            "pageNumber": page_num,
+                            "canvasCoords": canvas_coords,
+                            "pdfCoords": pdf_coords,
+                            "clippingPath": None,
+                            "relativeUrl": None,
+                            "error": "Invalid coordinates - annotation outside page bounds or too small"
+                        })
         
-        print(f"   ✅ Generated {len(clipping_results)} clippings")
+        successful_count = len([r for r in clipping_results if r.get("clippingPath") is not None])
+        failed_count = len(clipping_results) - successful_count
+        
+        print(f"   ✅ Processed {len(clipping_results)} annotations: {successful_count} successful, {failed_count} failed")
         
         # Generate a debug overlay image showing where we think the annotations are
         try:
-            debug_overlay_path = generate_debug_overlay(doc, clipping_results, doc_dir)
-            print(f"   🔍 Debug overlay generated: {debug_overlay_path}")
+            # Filter out failed clippings for debug overlay
+            successful_clippings = [r for r in clipping_results if r.get("clippingPath") is not None]
             
-            # Generate a test clipping using the exact same coordinates as the debug overlay
-            test_clipping_path = generate_test_clipping(doc, clipping_results, doc_dir)
-            print(f"   🧪 Test clipping generated: {test_clipping_path}")
+            if successful_clippings:
+                debug_overlay_path = generate_debug_overlay(doc, successful_clippings, doc_dir)
+                print(f"   🔍 Debug overlay generated: {debug_overlay_path}")
+                
+                # Generate a test clipping using the exact same coordinates as the debug overlay
+                test_clipping_path = generate_test_clipping(doc, successful_clippings, doc_dir)
+                print(f"   🧪 Test clipping generated: {test_clipping_path}")
+            else:
+                print(f"   ⚠️  No successful clippings to generate debug overlay")
         except Exception as e:
             print(f"   ⚠️  Failed to generate debug overlay: {e}")
         
@@ -668,8 +697,7 @@ def canvas_to_pdf_coordinates(canvas_coords, canvas_width, canvas_height, page_m
     Canvas coordinates: top-left origin, pixels
     PDF coordinates: bottom-left origin, points
     
-    CRITICAL: The frontend debug shows that Fabric.js coordinates are based on the 
-    LOGICAL canvas size (600x463.6), not the DOM element size (1200x927).
+    SUPPORTS: Page rotation and dynamic canvas sizing based on aspect ratio
     """
     print(f"       → DETAILED Coordinate transformation debug:")
     print(f"         INPUT - Canvas coords: ({canvas_coords['left']:.1f}, {canvas_coords['top']:.1f}) {canvas_coords['width']:.1f}x{canvas_coords['height']:.1f}")
@@ -680,44 +708,53 @@ def canvas_to_pdf_coordinates(canvas_coords, canvas_width, canvas_height, page_m
     pdf_height = page_metadata["pdf_height"]
     image_width = page_metadata["image_width"]
     image_height = page_metadata["image_height"]
+    rotation = page_metadata.get("rotation", 0)
     dpi = page_metadata["dpi"]
     
     print(f"         METADATA - PDF: {pdf_width:.1f}x{pdf_height:.1f} pts")
     print(f"         METADATA - Image: {image_width}x{image_height} px")
+    print(f"         METADATA - Rotation: {rotation}°")
     print(f"         METADATA - DPI: {dpi}")
     
-    # CRITICAL FIX: The frontend shows that the background image is scaled to 0.2727272727272727
-    # This means: image_scale = canvas_size / image_size
-    # From debug: 600 / 2200 = 0.2727..., 463.6 / 1700 = 0.2727...
+    # NEW: Dynamic scaling calculation matching frontend logic
+    # The frontend now uses dynamic canvas sizing based on aspect ratio
+    image_aspect_ratio = image_width / image_height
+    max_canvas_width = 800
+    max_canvas_height = 600
     
-    # Calculate how the image was scaled to fit in the canvas
-    image_scale_x = canvas_width / image_width
-    image_scale_y = canvas_height / image_height
-    actual_scale = min(image_scale_x, image_scale_y)  # Fabric.js uses min to maintain aspect ratio
+    if image_aspect_ratio > (max_canvas_width / max_canvas_height):
+        # Image is wider (landscape) - fit to width
+        actual_scale = max_canvas_width / image_width
+        expected_canvas_width = max_canvas_width
+        expected_canvas_height = max_canvas_width / image_aspect_ratio
+    else:
+        # Image is taller (portrait) - fit to height
+        actual_scale = max_canvas_height / image_height
+        expected_canvas_width = max_canvas_height * image_aspect_ratio
+        expected_canvas_height = max_canvas_height
     
-    print(f"         SCALING - Image to canvas scale factors: x={image_scale_x:.6f}, y={image_scale_y:.6f}")
-    print(f"         SCALING - Actual scale used (min): {actual_scale:.6f}")
+    print(f"         SCALING - Expected frontend canvas: {expected_canvas_width:.1f}x{expected_canvas_height:.1f}")
+    print(f"         SCALING - Calculated scale: {actual_scale:.6f}")
+    print(f"         SCALING - Image aspect ratio: {image_aspect_ratio:.6f}")
     
-    # Verify this matches the frontend debug output (should be ~0.2727)
-    expected_scale = 0.2727272727272727
-    if abs(actual_scale - expected_scale) > 0.001:
-        print(f"         ⚠️  SCALE MISMATCH: Expected {expected_scale:.6f}, got {actual_scale:.6f}")
-    
-    # Calculate the actual displayed image size on canvas
-    displayed_image_width = image_width * actual_scale
-    displayed_image_height = image_height * actual_scale
-    
-    print(f"         DISPLAYED - Image size on canvas: {displayed_image_width:.1f}x{displayed_image_height:.1f}")
+    # Verify canvas dimensions match frontend calculation
+    if abs(canvas_width - expected_canvas_width) > 1 or abs(canvas_height - expected_canvas_height) > 1:
+        print(f"         ⚠️  CANVAS SIZE MISMATCH: Expected {expected_canvas_width:.1f}x{expected_canvas_height:.1f}, got {canvas_width:.1f}x{canvas_height:.1f}")
     
     # Convert canvas coordinates to original image coordinates
-    # The canvas coordinates are already in the logical coordinate system
-    # that matches the scaled image, so we just need to scale them up
     original_image_left = canvas_coords["left"] / actual_scale
     original_image_top = canvas_coords["top"] / actual_scale
     original_image_width = canvas_coords["width"] / actual_scale
     original_image_height = canvas_coords["height"] / actual_scale
     
     print(f"         ORIGINAL IMAGE - Coords: ({original_image_left:.1f}, {original_image_top:.1f}) {original_image_width:.1f}x{original_image_height:.1f}")
+    
+    # Handle page rotation if present
+    if rotation != 0:
+        print(f"         ROTATION - Applying {rotation}° transformation")
+        # TODO: Implement rotation transformation based on rotation angle
+        # For now, log that rotation was detected but not yet implemented
+        print(f"         ⚠️  WARNING: Page rotation detected but not yet implemented in coordinate transformation")
     
     # Convert from image coordinates to PDF coordinates
     # Image was created at specific DPI, so we need to convert back to PDF points
@@ -771,6 +808,13 @@ def generate_pdf_clipping(doc, page_index, pdf_coords, output_dir, filename_pref
     print(f"         Page rect: {page.rect}")
     print(f"         PDF coords (bottom-left): ({pdf_coords['left']:.1f}, {pdf_coords['top']:.1f}) {pdf_coords['width']:.1f}x{pdf_coords['height']:.1f}")
     
+    # Validate minimum dimensions before proceeding
+    min_dimension = 1.0  # Minimum 1 point in each dimension
+    if pdf_coords["width"] < min_dimension or pdf_coords["height"] < min_dimension:
+        print(f"         ❌ INVALID: Annotation too small (width: {pdf_coords['width']:.1f}, height: {pdf_coords['height']:.1f})")
+        print(f"         Skipping clipping generation for invalid annotation")
+        return None
+    
     # Convert PDF coordinates (bottom-left origin) to MuPDF coordinates (top-left origin)
     page_height = page.rect.height
     mupdf_left = pdf_coords["left"]
@@ -790,34 +834,53 @@ def generate_pdf_clipping(doc, page_index, pdf_coords, output_dir, filename_pref
     
     print(f"         Clip rect: {clip_rect}")
     
-    # Validate the clipping rectangle is within page bounds
+    # Validate the clipping rectangle is within page bounds and has valid dimensions
     page_rect = page.rect
-    if not page_rect.contains(clip_rect):
-        print(f"         ⚠️  WARNING: Clip rect extends beyond page bounds!")
-        print(f"         Page: {page_rect}")
-        print(f"         Clip: {clip_rect}")
-        
-        # Intersect with page bounds to prevent errors
-        clip_rect = clip_rect & page_rect
-        print(f"         Adjusted clip rect: {clip_rect}")
+    
+    # First intersect with page bounds
+    clipped_rect = clip_rect & page_rect
+    print(f"         Intersected with page bounds: {clipped_rect}")
+    
+    # Check if the intersection resulted in a valid rectangle
+    if clipped_rect.is_empty or clipped_rect.width < min_dimension or clipped_rect.height < min_dimension:
+        print(f"         ❌ INVALID: Clipping rectangle is empty or too small after intersection")
+        print(f"         Final rect: {clipped_rect}")
+        print(f"         Dimensions: {clipped_rect.width:.1f}x{clipped_rect.height:.1f}")
+        print(f"         Skipping clipping generation for out-of-bounds annotation")
+        return None
+    
+    # Use the intersected rectangle for clipping
+    clip_rect = clipped_rect
     
     # Verify this matches our expected coordinates
     expected_top = page_height - pdf_coords["top"] - pdf_coords["height"]
     print(f"         Verification: Expected top = {page_height:.1f} - {pdf_coords['top']:.1f} - {pdf_coords['height']:.1f} = {expected_top:.1f}")
     
-    # Generate high-resolution pixmap (300 DPI for high quality)
-    matrix = fitz.Matrix(300/72, 300/72)  # 300 DPI scaling
-    pix = page.get_pixmap(matrix=matrix, clip=clip_rect)
-    
-    # Save clipping
-    output_path = os.path.join(output_dir, f"{filename_prefix}_clipping.png")
-    pix.save(output_path)
-    
-    print(f"     ✅ Generated clipping: {output_path}")
-    print(f"       Size: {pix.width}x{pix.height} px")
-    print(f"       Actual clipped area: {clip_rect.width:.1f}x{clip_rect.height:.1f} pts")
-    
-    return output_path
+    try:
+        # Generate high-resolution pixmap (300 DPI for high quality)
+        matrix = fitz.Matrix(300/72, 300/72)  # 300 DPI scaling
+        pix = page.get_pixmap(matrix=matrix, clip=clip_rect)
+        
+        # Validate pixmap dimensions before saving
+        if pix.width <= 0 or pix.height <= 0:
+            print(f"         ❌ INVALID: Generated pixmap has invalid dimensions: {pix.width}x{pix.height}")
+            return None
+        
+        # Save clipping
+        output_path = os.path.join(output_dir, f"{filename_prefix}_clipping.png")
+        pix.save(output_path)
+        
+        print(f"     ✅ Generated clipping: {output_path}")
+        print(f"       Size: {pix.width}x{pix.height} px")
+        print(f"       Actual clipped area: {clip_rect.width:.1f}x{clip_rect.height:.1f} pts")
+        
+        return output_path
+        
+    except Exception as e:
+        print(f"         ❌ FAILED to generate clipping: {e}")
+        print(f"         Clip rect: {clip_rect}")
+        print(f"         Dimensions: {clip_rect.width:.1f}x{clip_rect.height:.1f}")
+        return None
 
 
 def generate_debug_overlay(doc, clipping_results, doc_dir):

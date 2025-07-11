@@ -86,11 +86,12 @@ const DefineKeyAreasTab = ({
 
         console.log(`Initializing canvas for page ${pageNumber}`);
 
+        // Start with a temporary canvas size - we'll resize after loading the image
         const canvas = new fabric.Canvas(canvasElement, {
             selection: true,
             preserveObjectStacking: true,
-            width: 600,
-            height: 800
+            width: 800,  // Temporary initial size
+            height: 600  // Will be adjusted based on actual image dimensions
         });
 
         // Store canvas in state immediately
@@ -105,12 +106,30 @@ const DefineKeyAreasTab = ({
         fabric.Image.fromURL(imageUrl, (img) => {
             if (!canvas || canvas._disposed) return;
             
-            const scale = Math.min(600 / img.width, 800 / img.height);
+            // DYNAMIC CANVAS SIZING: Calculate optimal canvas size based on image aspect ratio
+            const imageAspectRatio = img.width / img.height;
+            const maxCanvasWidth = 800;   // Maximum width for UI layout
+            const maxCanvasHeight = 600;  // Maximum height for UI layout
+            
+            let actualCanvasWidth, actualCanvasHeight, scale;
+            
+            // Determine optimal canvas dimensions based on aspect ratio
+            if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
+                // Image is wider (landscape) - fit to width
+                actualCanvasWidth = maxCanvasWidth;
+                actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
+                scale = maxCanvasWidth / img.width;
+            } else {
+                // Image is taller (portrait) - fit to height
+                actualCanvasHeight = maxCanvasHeight;
+                actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
+                scale = maxCanvasHeight / img.height;
+            }
+            
+            // Scale the image to match canvas
             img.scale(scale);
             
-            const actualCanvasWidth = img.width * scale;
-            const actualCanvasHeight = img.height * scale;
-            
+            // Set canvas to exact scaled image dimensions
             canvas.setWidth(actualCanvasWidth);
             canvas.setHeight(actualCanvasHeight);
             
@@ -124,6 +143,7 @@ const DefineKeyAreasTab = ({
             }));
             
             console.log(`Canvas ${pageNumber} initialized: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)} (scale: ${scale.toFixed(3)})`);
+            console.log(`  Image: ${img.width}x${img.height}, Aspect ratio: ${imageAspectRatio.toFixed(3)}`);
             
             canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
                 scaleX: scale,
