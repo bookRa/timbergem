@@ -2,3 +2,4 @@ Flask
 PyMuPDF
 Flask-Cors
 python-dotenv
+pandas
