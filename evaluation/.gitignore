@@ -1,0 +1,4 @@
+.env
+1_input_documents/
+2_output_artifacts/
+venv/
