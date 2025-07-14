@@ -1,0 +1,409 @@
+import os
+import json
+import asyncio
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+
+from .pdf_processor import PDFProcessor
+from .llm_interface import LLMInterface, LLMProvider, LLMResponse
+
+
+@dataclass
+class PageToHTMLConfig:
+    """Configuration for the page-to-HTML pipeline."""
+    llm_provider: str = "mock"  # Default to mock for testing
+    llm_model: Optional[str] = None
+    dpi: int = 200
+    high_res_dpi: int = 300
+    max_concurrent_requests: int = 3  # Limit parallel LLM requests
+    testing_mode: bool = True  # Default to testing mode
+    
+    # Provider-specific configurations
+    gemini_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+
+
+@dataclass
+class PageHTMLResult:
+    """Result of HTML generation for a single page."""
+    page_number: int
+    success: bool
+    html_content: Optional[str] = None
+    html_file_path: Optional[str] = None
+    error_message: Optional[str] = None
+    processing_time: float = 0.0
+    token_usage: Optional[Dict] = None
+
+
+class PageToHTMLPipeline:
+    """
+    Main pipeline for converting PDF pages to structured HTML.
+    
+    This pipeline:
+    1. Processes PDF to extract artifacts (pixmaps, text, tables)
+    2. Uses LLM to convert each page to HTML
+    3. Saves results and provides comprehensive feedback
+    """
+    
+    def __init__(self, config: PageToHTMLConfig):
+        self.config = config
+        self.pdf_processor = PDFProcessor(
+            dpi=config.dpi,
+            high_res_dpi=config.high_res_dpi
+        )
+        
+        # Initialize LLM interface
+        llm_provider = self._create_llm_provider()
+        self.llm_interface = LLMInterface(llm_provider)
+        
+        # Load system prompt
+        self.system_prompt = self._load_system_prompt()
+    
+    def _create_llm_provider(self) -> LLMProvider:
+        """Create the appropriate LLM provider based on configuration."""
+        provider_kwargs = {}
+        
+        if self.config.llm_provider == "gemini":
+            provider_kwargs["api_key"] = self.config.gemini_api_key
+            if self.config.llm_model:
+                provider_kwargs["model"] = self.config.llm_model
+        elif self.config.llm_provider == "openai":
+            provider_kwargs["api_key"] = self.config.openai_api_key
+            if self.config.llm_model:
+                provider_kwargs["model"] = self.config.llm_model
+        elif self.config.llm_provider == "claude":
+            provider_kwargs["api_key"] = self.config.anthropic_api_key
+            if self.config.llm_model:
+                provider_kwargs["model"] = self.config.llm_model
+        
+        return LLMInterface.create_provider(self.config.llm_provider, **provider_kwargs)
+    
+    def _load_system_prompt(self) -> str:
+        """Load the system prompt for HTML generation."""
+        try:
+            # Look for system prompt in the expected location
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            backend_dir = os.path.dirname(script_dir)
+            prompt_path = os.path.join(backend_dir, "system_prompts", "page_to_html.md")
+            
+            if os.path.exists(prompt_path):
+                with open(prompt_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            else:
+                print(f"⚠️  System prompt not found at {prompt_path}, using default")
+                return self._get_default_system_prompt()
+        except Exception as e:
+            print(f"⚠️  Error loading system prompt: {e}, using default")
+            return self._get_default_system_prompt()
+    
+    def _get_default_system_prompt(self) -> str:
+        """Get a basic default system prompt if the file is not found."""
+        return """You are an expert at converting construction documents to structured HTML.
+        
+Given a page image and optionally extracted text and tables, convert the page to clean,
+structured HTML that accurately represents the document layout and content.
+
+Include appropriate HTML structure, semantic elements, and basic CSS styling.
+For images and diagrams, provide detailed descriptions in div elements.
+Ensure the HTML is valid and well-formatted."""
+    
+    async def process_pdf_to_html(
+        self, 
+        pdf_path: str, 
+        output_dir: str, 
+        doc_id: str
+    ) -> Dict:
+        """
+        Complete pipeline to process a PDF and generate HTML for all pages.
+        
+        Args:
+            pdf_path: Path to the PDF file
+            output_dir: Directory to save all outputs
+            doc_id: Unique document identifier
+            
+        Returns:
+            Dictionary containing complete processing results
+        """
+        print(f"🚀 Starting page-to-HTML pipeline for {pdf_path}")
+        print(f"   Configuration: {self.config.llm_provider} provider, testing={self.config.testing_mode}")
+        
+        # Step 1: Process PDF to extract artifacts
+        print(f"\n📄 Step 1: Processing PDF...")
+        processing_results = self.pdf_processor.process_pdf(pdf_path, output_dir, doc_id)
+        
+        if self.config.testing_mode:
+            print(f"⚠️  TESTING MODE: Skipping LLM calls, generating mock HTML files")
+            html_results = await self._generate_mock_html_files(processing_results, output_dir)
+        else:
+            # Step 2: Generate HTML for each page using LLM
+            print(f"\n🤖 Step 2: Generating HTML using {self.config.llm_provider}...")
+            html_results = await self._generate_html_for_all_pages(processing_results, output_dir)
+        
+        # Step 3: Compile final results
+        final_results = {
+            "docId": doc_id,
+            "pdf_processing": processing_results,
+            "html_generation": {
+                "provider": self.config.llm_provider,
+                "testing_mode": self.config.testing_mode,
+                "total_pages": len(html_results),
+                "successful_pages": len([r for r in html_results if r.success]),
+                "failed_pages": len([r for r in html_results if not r.success]),
+                "total_tokens_used": sum(
+                    (r.token_usage.get("prompt_tokens", 0) + r.token_usage.get("completion_tokens", 0))
+                    for r in html_results if r.token_usage
+                ),
+                "results": [self._serialize_html_result(r) for r in html_results]
+            },
+            "pipeline_metadata": {
+                "config": {
+                    "llm_provider": self.config.llm_provider,
+                    "llm_model": self.config.llm_model,
+                    "testing_mode": self.config.testing_mode,
+                    "dpi": self.config.dpi,
+                    "high_res_dpi": self.config.high_res_dpi
+                }
+            }
+        }
+        
+        # Save final results
+        results_file = os.path.join(output_dir, "page_to_html_results.json")
+        with open(results_file, 'w') as f:
+            json.dump(final_results, f, indent=2)
+        
+        print(f"\n✅ Pipeline complete!")
+        print(f"   -> Successful pages: {final_results['html_generation']['successful_pages']}")
+        print(f"   -> Failed pages: {final_results['html_generation']['failed_pages']}")
+        if not self.config.testing_mode:
+            print(f"   -> Total tokens used: {final_results['html_generation']['total_tokens_used']}")
+        print(f"   -> Results saved to: {results_file}")
+        
+        return final_results
+    
+    async def _generate_html_for_all_pages(
+        self, 
+        processing_results: Dict, 
+        output_dir: str
+    ) -> List[PageHTMLResult]:
+        """Generate HTML for all pages using LLM, with controlled concurrency."""
+        pages = processing_results["pages"]
+        
+        # Create semaphore to limit concurrent requests
+        semaphore = asyncio.Semaphore(self.config.max_concurrent_requests)
+        
+        # Create tasks for all pages
+        tasks = []
+        for page_num, page_data in pages.items():
+            task = self._generate_html_for_page_with_semaphore(
+                semaphore, int(page_num), page_data, output_dir
+            )
+            tasks.append(task)
+        
+        # Execute all tasks
+        html_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Handle any exceptions
+        final_results = []
+        for i, result in enumerate(html_results):
+            if isinstance(result, Exception):
+                page_num = list(pages.keys())[i]
+                final_results.append(PageHTMLResult(
+                    page_number=int(page_num),
+                    success=False,
+                    error_message=str(result)
+                ))
+            else:
+                final_results.append(result)
+        
+        return final_results
+    
+    async def _generate_html_for_page_with_semaphore(
+        self,
+        semaphore: asyncio.Semaphore,
+        page_number: int,
+        page_data: Dict,
+        output_dir: str
+    ) -> PageHTMLResult:
+        """Generate HTML for a single page with semaphore control."""
+        async with semaphore:
+            return await self._generate_html_for_page(page_number, page_data, output_dir)
+    
+    async def _generate_html_for_page(
+        self,
+        page_number: int,
+        page_data: Dict,
+        output_dir: str
+    ) -> PageHTMLResult:
+        """Generate HTML for a single page."""
+        import time
+        start_time = time.time()
+        
+        print(f"     🔄 Generating HTML for page {page_number}...")
+        
+        try:
+            # Get artifact paths
+            artifacts = page_data["artifacts"]
+            pixmap_path = artifacts.get("pixmap")
+            text_path = artifacts.get("text")
+            tables_path = artifacts.get("tables")
+            
+            # Generate HTML using LLM
+            llm_response = await self.llm_interface.generate_html_from_page(
+                system_prompt=self.system_prompt,
+                pixmap_path=pixmap_path,
+                text_path=text_path,
+                tables_path=tables_path,
+                page_number=page_number
+            )
+            
+            processing_time = time.time() - start_time
+            
+            if llm_response.success:
+                # Save HTML to file
+                page_dir = page_data["page_dir"]
+                html_file = os.path.join(page_dir, f"page_{page_number}.html")
+                
+                with open(html_file, 'w', encoding='utf-8') as f:
+                    f.write(llm_response.content)
+                
+                print(f"       ✅ HTML saved: {html_file} ({processing_time:.1f}s)")
+                
+                return PageHTMLResult(
+                    page_number=page_number,
+                    success=True,
+                    html_content=llm_response.content,
+                    html_file_path=html_file,
+                    processing_time=processing_time,
+                    token_usage=llm_response.usage
+                )
+            else:
+                print(f"       ❌ HTML generation failed: {llm_response.error_message}")
+                
+                return PageHTMLResult(
+                    page_number=page_number,
+                    success=False,
+                    error_message=llm_response.error_message,
+                    processing_time=processing_time
+                )
+                
+        except Exception as e:
+            processing_time = time.time() - start_time
+            print(f"       ❌ Exception during HTML generation: {e}")
+            
+            return PageHTMLResult(
+                page_number=page_number,
+                success=False,
+                error_message=str(e),
+                processing_time=processing_time
+            )
+    
+    async def _generate_mock_html_files(
+        self, 
+        processing_results: Dict, 
+        output_dir: str
+    ) -> List[PageHTMLResult]:
+        """Generate mock HTML files for testing without making LLM calls."""
+        pages = processing_results["pages"]
+        html_results = []
+        
+        for page_num, page_data in pages.items():
+            page_number = int(page_num)
+            page_dir = page_data["page_dir"]
+            
+            # Create mock HTML content
+            artifacts = page_data["artifacts"]
+            text_available = "text" in artifacts
+            tables_available = "tables" in artifacts
+            
+            mock_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock Page {page_number} - Testing Mode</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }}
+        .page-container {{ background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        .mock-banner {{ background: #e3f2fd; border: 1px solid #1976d2; padding: 10px; border-radius: 4px; margin-bottom: 20px; }}
+        .artifacts-info {{ background: #f1f8e9; border: 1px solid #689f38; padding: 10px; border-radius: 4px; margin-bottom: 20px; }}
+        .artifact-item {{ margin: 5px 0; }}
+        .available {{ color: #2e7d32; }}
+        .unavailable {{ color: #d32f2f; }}
+    </style>
+</head>
+<body>
+    <div class="page-container">
+        <div class="mock-banner">
+            <h2>🧪 Testing Mode - Mock HTML Page {page_number}</h2>
+            <p>This is a mock HTML file generated for testing purposes. No LLM calls were made.</p>
+        </div>
+        
+        <div class="artifacts-info">
+            <h3>Available Artifacts:</h3>
+            <div class="artifact-item">
+                <strong>Pixmap:</strong> <span class="available">✅ Available</span>
+                ({artifacts.get('pixmap', 'N/A')})
+            </div>
+            <div class="artifact-item">
+                <strong>Text:</strong> <span class="{'available' if text_available else 'unavailable'}">
+                    {'✅ Available' if text_available else '❌ Not available'}
+                </span>
+                {f"({artifacts.get('text', 'N/A')})" if text_available else ""}
+            </div>
+            <div class="artifact-item">
+                <strong>Tables:</strong> <span class="{'available' if tables_available else 'unavailable'}">
+                    {'✅ Available' if tables_available else '❌ Not available'}
+                </span>
+                {f"({artifacts.get('tables', 'N/A')})" if tables_available else ""}
+            </div>
+        </div>
+        
+        <div class="content">
+            <h3>Page {page_number} Content</h3>
+            <p>In production mode, this would contain the LLM-generated structured HTML 
+            representation of the PDF page content.</p>
+            
+            {"<p><strong>Text extraction available:</strong> The LLM would use the extracted text to understand the document content.</p>" if text_available else ""}
+            {"<p><strong>Table extraction available:</strong> The LLM would structure any detected tables as HTML tables.</p>" if tables_available else ""}
+            
+            <p><strong>Processing info:</strong></p>
+            <ul>
+                <li>PDF dimensions: {page_data['pdf_metadata']['pdf_width']:.1f} x {page_data['pdf_metadata']['pdf_height']:.1f} pts</li>
+                <li>Page rotation: {page_data['pdf_metadata']['rotation']}°</li>
+                <li>High-res DPI: {page_data['pdf_metadata']['high_res_dpi']}</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>"""
+            
+            # Save mock HTML file
+            html_file = os.path.join(page_dir, f"page_{page_number}.html")
+            with open(html_file, 'w', encoding='utf-8') as f:
+                f.write(mock_html)
+            
+            html_results.append(PageHTMLResult(
+                page_number=page_number,
+                success=True,
+                html_content=mock_html,
+                html_file_path=html_file,
+                processing_time=0.1,  # Mock processing time
+                token_usage={"prompt_tokens": 0, "completion_tokens": 0}
+            ))
+            
+            print(f"     ✅ Mock HTML saved: {html_file}")
+        
+        return html_results
+    
+    def _serialize_html_result(self, result: PageHTMLResult) -> Dict:
+        """Convert PageHTMLResult to a serializable dictionary."""
+        return {
+            "page_number": result.page_number,
+            "success": result.success,
+            "html_file_path": result.html_file_path,
+            "error_message": result.error_message,
+            "processing_time": result.processing_time,
+            "token_usage": result.token_usage,
+            "html_content_length": len(result.html_content) if result.html_content else 0
+        } 
