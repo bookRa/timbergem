@@ -270,7 +270,8 @@ Ensure the HTML is valid and well-formatted."""
                     "raw_content": llm_response.content,
                     "content_length": len(llm_response.content),
                     "token_usage": llm_response.usage,
-                    "success": True
+                    "success": True,
+                    "gemini_response_data": llm_response.raw_response_data  # Add comprehensive Gemini data
                 }
                 
                 with open(raw_response_file, 'w', encoding='utf-8') as f:
@@ -309,7 +310,9 @@ Ensure the HTML is valid and well-formatted."""
                     "processing_time": processing_time,
                     "raw_content": llm_response.content,
                     "error_message": llm_response.error_message,
-                    "success": False
+                    "success": False,
+                    "token_usage": llm_response.usage,
+                    "gemini_response_data": getattr(llm_response, 'raw_response_data', None)
                 }
                 
                 with open(raw_response_file, 'w', encoding='utf-8') as f:
@@ -470,13 +473,23 @@ Ensure the HTML is valid and well-formatted."""
         if content.startswith('```html') and content.endswith('```'):
             # Remove markdown code block markers
             content = content[7:-3].strip()  # Remove ```html and ```
-            print(f"       🧹 Extracted HTML from markdown code block")
+            print(f"       🧹 Extracted HTML from complete markdown code block")
+        elif content.startswith('```html'):
+            # Handle incomplete markdown block (missing closing backticks)
+            content = content[7:].strip()  # Remove ```html
+            print(f"       🧹 Extracted HTML from incomplete markdown code block")
         elif content.startswith('```') and content.endswith('```'):
             # Generic code block - find the first newline and remove markers
             lines = content.split('\n')
             if len(lines) > 2:
                 content = '\n'.join(lines[1:-1])  # Remove first and last lines
                 print(f"       🧹 Extracted content from generic code block")
+        elif content.startswith('```'):
+            # Handle incomplete generic code block
+            lines = content.split('\n')
+            if len(lines) > 1:
+                content = '\n'.join(lines[1:])  # Remove first line
+                print(f"       🧹 Extracted content from incomplete generic code block")
         
         # Additional cleanup: remove any leading/trailing whitespace
         content = content.strip()

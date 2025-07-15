@@ -24,7 +24,7 @@ def test_api_with_concurrent_requests():
         "docId": "TEST",
         "config": {
             "llm_provider": "gemini",
-            "llm_model": "gemini-2.5-flash",
+            "llm_model": "gemini-2.5-pro",
             "testing_mode": False,  # 🚨 This will make actual API calls!
             "dpi": 200,
             "high_res_dpi": 300,

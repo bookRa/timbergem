@@ -24,6 +24,7 @@ class LLMResponse:
     success: bool
     error_message: Optional[str] = None
     usage: Optional[Dict] = None
+    raw_response_data: Optional[Dict] = None # Added for comprehensive response data
 
 
 class LLMProvider(ABC):
@@ -43,7 +44,7 @@ class LLMProvider(ABC):
 class GeminiProvider(LLMProvider):
     """Google Gemini provider implementation using the new google-genai library."""
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-flash"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-pro"):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.model = model
         
@@ -109,6 +110,7 @@ class GeminiProvider(LLMProvider):
             generate_content_config = types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(
                     thinking_budget=-1,  # Enable thinking
+                    include_thoughts=True,  # Include thinking in response
                 ),
                 response_mime_type="text/plain",
                 system_instruction=[
@@ -170,25 +172,136 @@ class GeminiProvider(LLMProvider):
             print(f"   🔍 Raw response type: {type(response)}")
             print(f"   🔍 Raw response attributes: {[attr for attr in dir(response) if not attr.startswith('_')]}")
             
-            # Extract content from response
-            content = ""
-            if hasattr(response, 'text') and response.text:
-                content = response.text
-            elif hasattr(response, 'content') and response.content:
-                content = response.content
-            elif hasattr(response, 'candidates') and response.candidates:
-                # Try to get content from candidates
-                candidate = response.candidates[0]
-                if hasattr(candidate, 'content') and candidate.content:
-                    if hasattr(candidate.content, 'parts') and candidate.content.parts:
-                        content = candidate.content.parts[0].text
+            # Extract comprehensive response data
+            response_data = {
+                "model": self.model,
+                "raw_response_type": str(type(response)),
+                "candidates": [],
+                "usage_metadata": None,
+                "prompt_feedback": None,
+                "thinking": None
+            }
             
-            print(f"   🔍 Extracted content length: {len(content) if content else 0}")
+            # Extract usage metadata
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                usage_metadata = response.usage_metadata
+                response_data["usage_metadata"] = {
+                    "prompt_token_count": getattr(usage_metadata, 'prompt_token_count', 0),
+                    "candidates_token_count": getattr(usage_metadata, 'candidates_token_count', 0),
+                    "total_token_count": getattr(usage_metadata, 'total_token_count', 0),
+                }
+                print(f"   📊 Token usage: {response_data['usage_metadata']}")
+            
+            # Extract prompt feedback
+            if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+                response_data["prompt_feedback"] = str(response.prompt_feedback)
+            
+            # Extract candidates and content
+            main_content = ""
+            thinking_content = ""
+            
+            if hasattr(response, 'candidates') and response.candidates:
+                for i, candidate in enumerate(response.candidates):
+                    candidate_data = {
+                        "index": i,
+                        "finish_reason": getattr(candidate, 'finish_reason', None),
+                        "safety_ratings": [],
+                        "content_parts": []
+                    }
+                    
+                    # Extract safety ratings
+                    if hasattr(candidate, 'safety_ratings') and candidate.safety_ratings:
+                        for rating in candidate.safety_ratings:
+                            candidate_data["safety_ratings"].append({
+                                "category": getattr(rating, 'category', None),
+                                "probability": getattr(rating, 'probability', None)
+                            })
+                    
+                    # Extract content parts
+                    if hasattr(candidate, 'content') and candidate.content:
+                        if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                            for part in candidate.content.parts:
+                                part_data = {"type": "unknown"}
+                                
+                                if hasattr(part, 'text') and part.text:
+                                    text = part.text
+                                    part_data = {
+                                        "type": "text",
+                                        "text": text,
+                                        "length": len(text)
+                                    }
+                                    
+                                    # Detect if this text part contains thinking/reasoning
+                                    # Look for common thinking patterns in Gemini responses
+                                    thinking_indicators = [
+                                        "my first thought", "i'm thinking", "let me", "i need to",
+                                        "okay, so", "my strategy", "i'll start by", "specifically, i'm thinking",
+                                        "first, i need to", "i'm up for it", "i'll use", "it looks like",
+                                        "i'm confident", "let's do this"
+                                    ]
+                                    
+                                    is_thinking = any(indicator in text.lower() for indicator in thinking_indicators)
+                                    
+                                    # Also check if it contains HTML (main content indicator)
+                                    contains_html = "<!DOCTYPE" in text or "<html" in text or "```html" in text
+                                    
+                                    if is_thinking and not contains_html and not thinking_content:
+                                        # This appears to be thinking content
+                                        thinking_content = text
+                                        part_data["is_thinking"] = True
+                                        print(f"   🧠 Thinking content identified: {len(text)} chars")
+                                    elif contains_html and not main_content:
+                                        # This appears to be the main HTML content
+                                        main_content = text
+                                        part_data["is_main_content"] = True
+                                    elif not main_content and not thinking_content:
+                                        # First text part - might be main content
+                                        main_content = text
+                                        part_data["is_main_content"] = True
+                                
+                                elif hasattr(part, 'thought') and part.thought:
+                                    # Dedicated thought part (if available)
+                                    part_data = {
+                                        "type": "thought",
+                                        "thought": part.thought,
+                                        "length": len(part.thought)
+                                    }
+                                    thinking_content = part.thought
+                                    print(f"   🧠 Dedicated thinking extracted: {len(part.thought)} chars")
+                                
+                                candidate_data["content_parts"].append(part_data)
+                    
+                    response_data["candidates"].append(candidate_data)
+            
+            # Fallback content extraction if candidates approach didn't work
+            if not main_content:
+                if hasattr(response, 'text') and response.text:
+                    main_content = response.text
+                elif hasattr(response, 'content') and response.content:
+                    main_content = response.content
+            
+            # Store thinking content
+            if thinking_content:
+                response_data["thinking"] = thinking_content
+            
+            print(f"   🔍 Extracted main content length: {len(main_content) if main_content else 0}")
+            if thinking_content:
+                print(f"   🧠 Extracted thinking length: {len(thinking_content)}")
+            
+            # Prepare usage for LLMResponse
+            usage = {"prompt_tokens": 0, "completion_tokens": 0}
+            if response_data["usage_metadata"]:
+                usage = {
+                    "prompt_tokens": response_data["usage_metadata"].get("prompt_token_count", 0),
+                    "completion_tokens": response_data["usage_metadata"].get("candidates_token_count", 0),
+                    "total_tokens": response_data["usage_metadata"].get("total_token_count", 0)
+                }
             
             return LLMResponse(
-                content=content,
+                content=main_content,
                 success=True,
-                usage={"prompt_tokens": 0, "completion_tokens": 0}  # Gemini doesn't provide detailed usage in new API
+                usage=usage,
+                raw_response_data=response_data  # Add comprehensive response data
             )
             
         except Exception as e:
@@ -442,7 +555,7 @@ class LLMInterface:
             system_prompt=system_prompt,
             user_message=user_message,
             images=images,
-            max_tokens=8000,  # Increased for HTML output
+            max_tokens=20000,  # Increased from 8000 to ensure complete HTML
             temperature=0.1
         )
         

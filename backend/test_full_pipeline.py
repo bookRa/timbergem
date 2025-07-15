@@ -26,7 +26,7 @@ async def main():
     # Configuration for production run with higher concurrency
     config = PageToHTMLConfig(
         llm_provider="gemini",
-        llm_model="gemini-2.5-flash",
+        llm_model="gemini-2.5-pro",
         testing_mode=False,  # 🚨 This will make actual API calls!
         dpi=200,
         high_res_dpi=300,
