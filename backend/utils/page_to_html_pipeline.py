@@ -246,14 +246,12 @@ Ensure the HTML is valid and well-formatted."""
             artifacts = page_data["artifacts"]
             pixmap_path = artifacts.get("pixmap")
             text_path = artifacts.get("text")
-            tables_path = artifacts.get("tables")
             
             # Generate HTML using LLM
             llm_response = await self.llm_interface.generate_html_from_page(
                 system_prompt=self.system_prompt,
                 pixmap_path=pixmap_path,
                 text_path=text_path,
-                tables_path=tables_path,
                 page_number=page_number
             )
             
@@ -314,7 +312,6 @@ Ensure the HTML is valid and well-formatted."""
             # Create mock HTML content
             artifacts = page_data["artifacts"]
             text_available = "text" in artifacts
-            tables_available = "tables" in artifacts
             
             mock_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -345,27 +342,20 @@ Ensure the HTML is valid and well-formatted."""
                 <strong>Pixmap:</strong> <span class="available">✅ Available</span>
                 ({artifacts.get('pixmap', 'N/A')})
             </div>
-            <div class="artifact-item">
-                <strong>Text:</strong> <span class="{'available' if text_available else 'unavailable'}">
-                    {'✅ Available' if text_available else '❌ Not available'}
-                </span>
-                {f"({artifacts.get('text', 'N/A')})" if text_available else ""}
-            </div>
-            <div class="artifact-item">
-                <strong>Tables:</strong> <span class="{'available' if tables_available else 'unavailable'}">
-                    {'✅ Available' if tables_available else '❌ Not available'}
-                </span>
-                {f"({artifacts.get('tables', 'N/A')})" if tables_available else ""}
-            </div>
+                         <div class="artifact-item">
+                 <strong>Text:</strong> <span class="{'available' if text_available else 'unavailable'}">
+                     {'✅ Available' if text_available else '❌ Not available'}
+                 </span>
+                 {f"({artifacts.get('text', 'N/A')})" if text_available else ""}
+             </div>
         </div>
         
         <div class="content">
             <h3>Page {page_number} Content</h3>
-            <p>In production mode, this would contain the LLM-generated structured HTML 
-            representation of the PDF page content.</p>
-            
-            {"<p><strong>Text extraction available:</strong> The LLM would use the extracted text to understand the document content.</p>" if text_available else ""}
-            {"<p><strong>Table extraction available:</strong> The LLM would structure any detected tables as HTML tables.</p>" if tables_available else ""}
+                         <p>In production mode, this would contain the LLM-generated structured HTML 
+             representation of the PDF page content.</p>
+             
+             {"<p><strong>Text extraction available:</strong> The LLM would use the extracted text to understand the document content.</p>" if text_available else ""}
             
             <p><strong>Processing info:</strong></p>
             <ul>

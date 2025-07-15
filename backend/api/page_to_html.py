@@ -1,7 +1,7 @@
 import os
 import asyncio
 from flask import Blueprint, request, jsonify
-from ..utils.page_to_html_pipeline import PageToHTMLPipeline, PageToHTMLConfig
+from utils.page_to_html_pipeline import PageToHTMLPipeline, PageToHTMLConfig
 
 
 # Create blueprint for page-to-HTML endpoints

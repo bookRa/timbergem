@@ -49,9 +49,7 @@ class PDFProcessor:
             "high_res_dpi": self.high_res_dpi,
             "pages": {},
             "processing_summary": {
-                "pages_with_text": 0,
-                "pages_with_tables": 0,
-                "total_tables": 0
+                "pages_with_text": 0
             }
         }
         
@@ -63,9 +61,6 @@ class PDFProcessor:
             # Update summary statistics
             if page_results["text_extracted"]:
                 processing_results["processing_summary"]["pages_with_text"] += 1
-            if page_results["tables_found"] > 0:
-                processing_results["processing_summary"]["pages_with_tables"] += 1
-                processing_results["processing_summary"]["total_tables"] += page_results["tables_found"]
         
         # Save processing metadata
         metadata_file = os.path.join(output_dir, "processing_metadata.json")
@@ -85,8 +80,6 @@ class PDFProcessor:
         
         print(f"   ✅ PDF processing complete")
         print(f"      -> Pages with text: {processing_results['processing_summary']['pages_with_text']}")
-        print(f"      -> Pages with tables: {processing_results['processing_summary']['pages_with_tables']}")
-        print(f"      -> Total tables found: {processing_results['processing_summary']['total_tables']}")
         
         return processing_results
     
@@ -116,7 +109,6 @@ class PDFProcessor:
             "page_dir": page_dir,
             "artifacts": {},
             "text_extracted": False,
-            "tables_found": 0,
             "pdf_metadata": self._get_page_metadata(page)
         }
         
@@ -129,13 +121,6 @@ class PDFProcessor:
         if text_path:
             page_results["artifacts"]["text"] = text_path
             page_results["text_extracted"] = True
-        
-        # 3. Extract tables
-        tables_path = self._extract_tables(page, page_dir, page_number)
-        if tables_path:
-            page_results["artifacts"]["tables"] = tables_path
-            # Count actual tables by checking the CSV content
-            page_results["tables_found"] = self._count_tables_in_csv(tables_path)
         
         return page_results
     
@@ -165,52 +150,7 @@ class PDFProcessor:
             print(f"       ⚪ No meaningful text found on page {page_number}")
             return None
     
-    def _extract_tables(self, page: fitz.Page, page_dir: str, page_number: int) -> Optional[str]:
-        """Extract tables from the page."""
-        try:
-            tables = page.find_tables()
-            
-            # Convert tables to list to check length properly
-            table_list = list(tables) if tables else []
-            
-            if table_list:
-                tables_path = os.path.join(page_dir, f"page_{page_number}_tables.csv")
-                
-                # Combine all tables into a single CSV file
-                with open(tables_path, 'w', encoding='utf-8') as f:
-                    f.write("# Tables extracted from page {}\n".format(page_number))
-                    
-                    for i, table in enumerate(table_list):
-                        f.write(f"\n# Table {i + 1}\n")
-                        
-                        # Extract table data
-                        table_data = table.extract()
-                        
-                        # Write table as CSV
-                        import csv
-                        import io
-                        
-                        # Use StringIO to write CSV data
-                        csv_buffer = io.StringIO()
-                        csv_writer = csv.writer(csv_buffer)
-                        
-                        for row in table_data:
-                            # Clean up row data
-                            clean_row = [str(cell).strip() if cell else "" for cell in row]
-                            csv_writer.writerow(clean_row)
-                        
-                        f.write(csv_buffer.getvalue())
-                        f.write("\n")
-                
-                print(f"       ✅ Tables extracted: {tables_path} ({len(table_list)} tables)")
-                return tables_path
-            else:
-                print(f"       ⚪ No tables found on page {page_number}")
-                return None
-                
-        except Exception as e:
-            print(f"       ⚠️  Error extracting tables from page {page_number}: {e}")
-            return None
+
     
     def _get_page_metadata(self, page: fitz.Page) -> Dict:
         """Get page metadata for coordinate transformation."""
@@ -224,12 +164,4 @@ class PDFProcessor:
             "high_res_dpi": self.high_res_dpi
         }
     
-    def _count_tables_in_csv(self, csv_path: str) -> int:
-        """Count the number of actual tables in the CSV file."""
-        try:
-            with open(csv_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                # Count table headers (lines starting with "# Table")
-                return content.count("# Table ")
-        except Exception:
-            return 0 
+ 

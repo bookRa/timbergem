@@ -9,7 +9,7 @@ The page-to-HTML pipeline converts PDF pages into structured HTML documents usin
 - **Modular Architecture**: Easy to swap LLM providers or entire processing pipelines
 - **Testing Mode**: Generate mock HTML files without making expensive API calls
 - **Parallel Processing**: Process multiple pages simultaneously with controlled concurrency
-- **Artifact Extraction**: Extracts text, tables, and high-resolution images from PDF pages
+- **Artifact Extraction**: Extracts text and high-resolution images from PDF pages
 - **Comprehensive Results**: Detailed logging and result tracking
 
 ## Quick Start
@@ -128,7 +128,6 @@ data/processed/{docId}/
 ├── page_1/
 │   ├── page_1_pixmap.png            # High-res page image
 │   ├── page_1_text.txt              # Extracted text
-│   ├── page_1_tables.csv            # Extracted tables (if any)
 │   └── page_1.html                  # Generated HTML
 ├── page_2/
 │   └── ...

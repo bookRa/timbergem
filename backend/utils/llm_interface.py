@@ -318,7 +318,6 @@ class LLMInterface:
         system_prompt: str,
         pixmap_path: str,
         text_path: Optional[str] = None,
-        tables_path: Optional[str] = None,
         page_number: int = 1
     ) -> LLMResponse:
         """
@@ -328,7 +327,6 @@ class LLMInterface:
             system_prompt: The system prompt for HTML generation
             pixmap_path: Path to the page pixmap image
             text_path: Optional path to extracted text
-            tables_path: Optional path to extracted tables
             page_number: Page number for context
             
         Returns:
@@ -345,13 +343,6 @@ class LLMInterface:
                 text_content = f.read().strip()
             if text_content:
                 user_message_parts.append(f"\n**Extracted Text:**\n{text_content}")
-        
-        # Add table content if available
-        if tables_path and os.path.exists(tables_path):
-            with open(tables_path, 'r', encoding='utf-8') as f:
-                table_content = f.read().strip()
-            if table_content:
-                user_message_parts.append(f"\n**Extracted Tables:**\n{table_content}")
         
         user_message = "\n".join(user_message_parts)
         
