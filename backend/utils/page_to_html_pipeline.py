@@ -256,27 +256,67 @@ Ensure the HTML is valid and well-formatted."""
             )
             
             processing_time = time.time() - start_time
+            page_dir = page_data["page_dir"]
             
             if llm_response.success:
-                # Save HTML to file
-                page_dir = page_data["page_dir"]
+                # Save raw LLM response as JSON for debugging/analysis
+                raw_response_file = os.path.join(page_dir, f"page_{page_number}_raw_response.json")
+                raw_response_data = {
+                    "page_number": page_number,
+                    "timestamp": time.time(),
+                    "provider": self.config.llm_provider,
+                    "model": self.config.llm_model,
+                    "processing_time": processing_time,
+                    "raw_content": llm_response.content,
+                    "content_length": len(llm_response.content),
+                    "token_usage": llm_response.usage,
+                    "success": True
+                }
+                
+                with open(raw_response_file, 'w', encoding='utf-8') as f:
+                    json.dump(raw_response_data, f, indent=2, ensure_ascii=False)
+                
+                print(f"       💾 Raw response saved: {raw_response_file}")
+                
+                # Extract and clean HTML content
+                html_content = self._extract_html_content(llm_response.content)
+                
+                # Save cleaned HTML to file
                 html_file = os.path.join(page_dir, f"page_{page_number}.html")
                 
                 with open(html_file, 'w', encoding='utf-8') as f:
-                    f.write(llm_response.content)
+                    f.write(html_content)
                 
                 print(f"       ✅ HTML saved: {html_file} ({processing_time:.1f}s)")
+                print(f"       📊 Content: {len(llm_response.content)} chars raw → {len(html_content)} chars HTML")
                 
                 return PageHTMLResult(
                     page_number=page_number,
                     success=True,
-                    html_content=llm_response.content,
+                    html_content=html_content,
                     html_file_path=html_file,
                     processing_time=processing_time,
                     token_usage=llm_response.usage
                 )
             else:
+                # Save failed response for debugging
+                raw_response_file = os.path.join(page_dir, f"page_{page_number}_raw_response.json")
+                raw_response_data = {
+                    "page_number": page_number,
+                    "timestamp": time.time(),
+                    "provider": self.config.llm_provider,
+                    "model": self.config.llm_model,
+                    "processing_time": processing_time,
+                    "raw_content": llm_response.content,
+                    "error_message": llm_response.error_message,
+                    "success": False
+                }
+                
+                with open(raw_response_file, 'w', encoding='utf-8') as f:
+                    json.dump(raw_response_data, f, indent=2, ensure_ascii=False)
+                
                 print(f"       ❌ HTML generation failed: {llm_response.error_message}")
+                print(f"       💾 Error response saved: {raw_response_file}")
                 
                 return PageHTMLResult(
                     page_number=page_number,
@@ -288,6 +328,22 @@ Ensure the HTML is valid and well-formatted."""
         except Exception as e:
             processing_time = time.time() - start_time
             print(f"       ❌ Exception during HTML generation: {e}")
+            
+            # Save exception details
+            page_dir = page_data["page_dir"]
+            raw_response_file = os.path.join(page_dir, f"page_{page_number}_raw_response.json")
+            raw_response_data = {
+                "page_number": page_number,
+                "timestamp": time.time(),
+                "provider": self.config.llm_provider,
+                "model": self.config.llm_model,
+                "processing_time": processing_time,
+                "exception": str(e),
+                "success": False
+            }
+            
+            with open(raw_response_file, 'w', encoding='utf-8') as f:
+                json.dump(raw_response_data, f, indent=2, ensure_ascii=False)
             
             return PageHTMLResult(
                 page_number=page_number,
@@ -397,3 +453,36 @@ Ensure the HTML is valid and well-formatted."""
             "token_usage": result.token_usage,
             "html_content_length": len(result.html_content) if result.html_content else 0
         } 
+
+    def _extract_html_content(self, raw_content: str) -> str:
+        """
+        Extract HTML content from LLM response, handling potential markdown code blocks.
+        
+        Args:
+            raw_content: Raw response from LLM
+            
+        Returns:
+            Cleaned HTML content
+        """
+        content = raw_content.strip()
+        
+        # Check if content is wrapped in markdown code blocks
+        if content.startswith('```html') and content.endswith('```'):
+            # Remove markdown code block markers
+            content = content[7:-3].strip()  # Remove ```html and ```
+            print(f"       🧹 Extracted HTML from markdown code block")
+        elif content.startswith('```') and content.endswith('```'):
+            # Generic code block - find the first newline and remove markers
+            lines = content.split('\n')
+            if len(lines) > 2:
+                content = '\n'.join(lines[1:-1])  # Remove first and last lines
+                print(f"       🧹 Extracted content from generic code block")
+        
+        # Additional cleanup: remove any leading/trailing whitespace
+        content = content.strip()
+        
+        # If content doesn't start with HTML tags, assume it's raw HTML
+        if not content.startswith('<!DOCTYPE') and not content.startswith('<html'):
+            print(f"       ⚠️  Content doesn't start with HTML tags - using as-is")
+        
+        return content 
