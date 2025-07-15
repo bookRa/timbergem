@@ -4,7 +4,7 @@ Flask-Cors
 python-dotenv
 
 # LLM providers (optional - install only what you need)
-google-generativeai
+google-genai
 openai
 anthropic
 pillow  # Required for image processing with LLM providers
