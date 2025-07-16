@@ -2,4 +2,12 @@ Flask
 PyMuPDF
 Flask-Cors
 python-dotenv
-pandas
+
+# LLM providers (optional - install only what you need)
+google-genai
+openai
+anthropic
+pillow  # Required for image processing with LLM providers
+
+# Async support
+asyncio

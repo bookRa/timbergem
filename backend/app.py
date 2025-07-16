@@ -4,8 +4,15 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import fitz  # PyMuPDF
 
+# Import new modular components
+from api.page_to_html import page_to_html_bp
+from utils.pdf_processor import PDFProcessor
+
 # --- Basic Flask App Setup ---
 app = Flask(__name__)
+
+# Register blueprints
+app.register_blueprint(page_to_html_bp)
 
 # --- CORS Setup ---
 # Configure CORS for development with specific origins
@@ -50,7 +57,9 @@ print(f" -> Processed data will be stored in: {os.path.abspath(PROCESSED_FOLDER)
 @app.route("/api/upload", methods=["POST", "OPTIONS"])
 def upload_and_process_pdf():
     """
-    Handles the PDF file upload and processes it into page images.
+    Handles the PDF file upload and processes it using the modular PDF processor.
+    This is the legacy endpoint that creates basic page images for the annotation system.
+    For the new page-to-HTML pipeline, use /api/process_pdf_to_html
     """
     print("\n--- Received request on /api/upload ---")
     print(f"Request method: {request.method}")
@@ -83,17 +92,21 @@ def upload_and_process_pdf():
             file.save(temp_pdf_path)
             print(f"   -> Temporarily saved PDF to: {temp_pdf_path}")
 
-            # 3. Process the PDF
+            # 3. Process the PDF using the new modular processor
             doc_id = str(uuid.uuid4())
             output_dir = os.path.join(app.config["PROCESSED_FOLDER"], doc_id)
-            os.makedirs(output_dir)
-            print(f"   -> Created processing directory: {output_dir}")
-
+            
+            # Create the modular PDF processor
+            pdf_processor = PDFProcessor(dpi=200, high_res_dpi=300)
+            
+            # Process the PDF
+            processing_results = pdf_processor.process_pdf(temp_pdf_path, output_dir, doc_id)
+            
+            # Create legacy page images for backward compatibility
             doc = fitz.open(temp_pdf_path)
             num_pages = len(doc)
-            print(f"   -> PDF has {num_pages} pages. Starting conversion to PNG...")
-
-            # Store transformation metadata for coordinate mapping
+            
+            # Legacy metadata format for coordinate mapping
             page_metadata = {}
             dpi = 200
 
@@ -108,12 +121,12 @@ def upload_and_process_pdf():
                 # Check for page rotation
                 rotation = page.rotation
                 
-                # Create pixmap and save image
+                # Create pixmap and save image (legacy format)
                 pix = page.get_pixmap(dpi=dpi)
                 output_image_path = os.path.join(output_dir, f"page_{page_num + 1}.png")
                 pix.save(output_image_path)
                 
-                # Store metadata for coordinate transformation
+                # Store metadata for coordinate transformation (legacy format)
                 page_metadata[page_num + 1] = {
                     "pdf_width": pdf_width,
                     "pdf_height": pdf_height,
@@ -124,12 +137,8 @@ def upload_and_process_pdf():
                     "scale_x": pix.width / pdf_width,
                     "scale_y": pix.height / pdf_height
                 }
-                
-                rotation_info = f" (rotated {rotation}°)" if rotation != 0 else ""
-                print(f"     ✅ Saved page {page_num + 1} to {output_image_path}{rotation_info}")
-                print(f"       PDF: {pdf_width:.1f}x{pdf_height:.1f} pts, Image: {pix.width}x{pix.height} px")
 
-            # Save metadata to JSON file
+            # Save legacy metadata to JSON file
             metadata_file = os.path.join(output_dir, "page_metadata.json")
             import json
             with open(metadata_file, 'w') as f:
@@ -139,14 +148,6 @@ def upload_and_process_pdf():
                     "dpi": dpi,
                     "pages": page_metadata
                 }, f, indent=2)
-            
-            print(f"   ✅ Saved page metadata to: {metadata_file}")
-
-            # Save original PDF for high-res clipping
-            original_pdf_path = os.path.join(output_dir, "original.pdf")
-            import shutil
-            shutil.copy2(temp_pdf_path, original_pdf_path)
-            print(f"   ✅ Saved original PDF to: {original_pdf_path}")
 
             doc.close()
 
@@ -155,15 +156,14 @@ def upload_and_process_pdf():
             print(f"   -> Cleaned up temporary file: {temp_pdf_path}")
 
             # 5. Return a success response
-            print(
-                "--- ✅ Successfully processed PDF. Sending response to frontend. ---"
-            )
+            print("--- ✅ Successfully processed PDF. Sending response to frontend. ---")
             return (
                 jsonify(
                     {
                         "message": "File processed successfully",
                         "docId": doc_id,
                         "pageCount": num_pages,
+                        "processing_summary": processing_results["processing_summary"]
                     }
                 ),
                 200,
