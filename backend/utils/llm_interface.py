@@ -237,27 +237,33 @@ class GeminiProvider(LLMProvider):
                                         "my first thought", "i'm thinking", "let me", "i need to",
                                         "okay, so", "my strategy", "i'll start by", "specifically, i'm thinking",
                                         "first, i need to", "i'm up for it", "i'll use", "it looks like",
-                                        "i'm confident", "let's do this"
+                                        "i'm confident", "let's do this", "my plan", "alright,", "initial assessment"
                                     ]
                                     
                                     is_thinking = any(indicator in text.lower() for indicator in thinking_indicators)
                                     
-                                    # Also check if it contains HTML (main content indicator)
-                                    contains_html = "<!DOCTYPE" in text or "<html" in text or "```html" in text
+                                    # Check if it contains actual HTML content (starts with it, not just mentions it)
+                                    starts_with_html_markdown = text.strip().startswith('```html')
+                                    starts_with_doctype = text.strip().startswith('<!DOCTYPE')
+                                    starts_with_html_tag = text.strip().startswith('<html')
+                                    is_actual_html = starts_with_html_markdown or starts_with_doctype or starts_with_html_tag
                                     
-                                    if is_thinking and not contains_html and not thinking_content:
-                                        # This appears to be thinking content
+                                    # Classify content with priority: actual HTML > thinking patterns
+                                    if is_actual_html and not main_content:
+                                        # This is the actual HTML content we want
+                                        main_content = text
+                                        part_data["is_main_content"] = True
+                                        print(f"   📄 Main HTML content identified: {len(text)} chars")
+                                    elif is_thinking and not is_actual_html and not thinking_content:
+                                        # This is thinking content (and not HTML)
                                         thinking_content = text
                                         part_data["is_thinking"] = True
                                         print(f"   🧠 Thinking content identified: {len(text)} chars")
-                                    elif contains_html and not main_content:
-                                        # This appears to be the main HTML content
-                                        main_content = text
-                                        part_data["is_main_content"] = True
                                     elif not main_content and not thinking_content:
-                                        # First text part - might be main content
+                                        # Fallback: if nothing identified yet, this might be main content
                                         main_content = text
                                         part_data["is_main_content"] = True
+                                        print(f"   📄 Fallback main content: {len(text)} chars")
                                 
                                 elif hasattr(part, 'thought') and part.thought:
                                     # Dedicated thought part (if available)
