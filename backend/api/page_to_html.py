@@ -38,10 +38,9 @@ def process_pdf_to_html():
         config = PageToHTMLConfig(
             llm_provider=config_data.get("llm_provider", "mock"),
             llm_model=config_data.get("llm_model"),
-            testing_mode=config_data.get("testing_mode", True),
             dpi=config_data.get("dpi", 200),
             high_res_dpi=config_data.get("high_res_dpi", 300),
-            max_concurrent_requests=config_data.get("max_concurrent_requests", 3),
+            max_concurrent_requests=config_data.get("max_concurrent_requests", 7),
             gemini_api_key=config_data.get("gemini_api_key"),
             openai_api_key=config_data.get("openai_api_key"),
             anthropic_api_key=config_data.get("anthropic_api_key")

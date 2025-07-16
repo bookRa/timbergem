@@ -9,7 +9,6 @@ class PDFProcessor:
     """
     Handles PDF processing operations including:
     - Text extraction
-    - Table extraction 
     - High-resolution pixmap generation
     - Metadata collection
     """

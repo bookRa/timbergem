@@ -15,8 +15,8 @@ class PageToHTMLConfig:
     llm_model: Optional[str] = None
     dpi: int = 200
     high_res_dpi: int = 300
-    max_concurrent_requests: int = 3  # Limit parallel LLM requests
-    testing_mode: bool = True  # Default to testing mode
+    max_concurrent_requests: int = 7  # Allow full parallelism for typical documents
+    # Note: Use llm_provider="mock" for testing without API costs
     
     # Provider-specific configurations
     gemini_api_key: Optional[str] = None
@@ -41,7 +41,7 @@ class PageToHTMLPipeline:
     Main pipeline for converting PDF pages to structured HTML.
     
     This pipeline:
-    1. Processes PDF to extract artifacts (pixmaps, text, tables)
+    1. Processes PDF to extract artifacts (pixmaps, text)
     2. Uses LLM to convert each page to HTML
     3. Saves results and provides comprehensive feedback
     """
@@ -126,19 +126,15 @@ Ensure the HTML is valid and well-formatted."""
             Dictionary containing complete processing results
         """
         print(f"🚀 Starting page-to-HTML pipeline for {pdf_path}")
-        print(f"   Configuration: {self.config.llm_provider} provider, testing={self.config.testing_mode}")
+        print(f"   Configuration: {self.config.llm_provider} provider")
         
         # Step 1: Process PDF to extract artifacts
         print(f"\n📄 Step 1: Processing PDF...")
         processing_results = self.pdf_processor.process_pdf(pdf_path, output_dir, doc_id)
         
-        if self.config.testing_mode:
-            print(f"⚠️  TESTING MODE: Skipping LLM calls, generating mock HTML files")
-            html_results = await self._generate_mock_html_files(processing_results, output_dir)
-        else:
-            # Step 2: Generate HTML for each page using LLM
-            print(f"\n🤖 Step 2: Generating HTML using {self.config.llm_provider}...")
-            html_results = await self._generate_html_for_all_pages(processing_results, output_dir)
+        # Step 2: Generate HTML for each page using LLM
+        print(f"\n🤖 Step 2: Generating HTML using {self.config.llm_provider}...")
+        html_results = await self._generate_html_for_all_pages(processing_results, output_dir)
         
         # Step 3: Compile final results
         final_results = {
@@ -146,7 +142,7 @@ Ensure the HTML is valid and well-formatted."""
             "pdf_processing": processing_results,
             "html_generation": {
                 "provider": self.config.llm_provider,
-                "testing_mode": self.config.testing_mode,
+                "model": self.config.llm_model,
                 "total_pages": len(html_results),
                 "successful_pages": len([r for r in html_results if r.success]),
                 "failed_pages": len([r for r in html_results if not r.success]),
@@ -160,9 +156,9 @@ Ensure the HTML is valid and well-formatted."""
                 "config": {
                     "llm_provider": self.config.llm_provider,
                     "llm_model": self.config.llm_model,
-                    "testing_mode": self.config.testing_mode,
                     "dpi": self.config.dpi,
-                    "high_res_dpi": self.config.high_res_dpi
+                    "high_res_dpi": self.config.high_res_dpi,
+                    "max_concurrent_requests": self.config.max_concurrent_requests
                 }
             }
         }
@@ -175,7 +171,7 @@ Ensure the HTML is valid and well-formatted."""
         print(f"\n✅ Pipeline complete!")
         print(f"   -> Successful pages: {final_results['html_generation']['successful_pages']}")
         print(f"   -> Failed pages: {final_results['html_generation']['failed_pages']}")
-        if not self.config.testing_mode:
+        if final_results['html_generation']['total_tokens_used'] > 0:
             print(f"   -> Total tokens used: {final_results['html_generation']['total_tokens_used']}")
         print(f"   -> Results saved to: {results_file}")
         
@@ -354,96 +350,6 @@ Ensure the HTML is valid and well-formatted."""
                 error_message=str(e),
                 processing_time=processing_time
             )
-    
-    async def _generate_mock_html_files(
-        self, 
-        processing_results: Dict, 
-        output_dir: str
-    ) -> List[PageHTMLResult]:
-        """Generate mock HTML files for testing without making LLM calls."""
-        pages = processing_results["pages"]
-        html_results = []
-        
-        for page_num, page_data in pages.items():
-            page_number = int(page_num)
-            page_dir = page_data["page_dir"]
-            
-            # Create mock HTML content
-            artifacts = page_data["artifacts"]
-            text_available = "text" in artifacts
-            
-            mock_html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mock Page {page_number} - Testing Mode</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }}
-        .page-container {{ background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        .mock-banner {{ background: #e3f2fd; border: 1px solid #1976d2; padding: 10px; border-radius: 4px; margin-bottom: 20px; }}
-        .artifacts-info {{ background: #f1f8e9; border: 1px solid #689f38; padding: 10px; border-radius: 4px; margin-bottom: 20px; }}
-        .artifact-item {{ margin: 5px 0; }}
-        .available {{ color: #2e7d32; }}
-        .unavailable {{ color: #d32f2f; }}
-    </style>
-</head>
-<body>
-    <div class="page-container">
-        <div class="mock-banner">
-            <h2>🧪 Testing Mode - Mock HTML Page {page_number}</h2>
-            <p>This is a mock HTML file generated for testing purposes. No LLM calls were made.</p>
-        </div>
-        
-        <div class="artifacts-info">
-            <h3>Available Artifacts:</h3>
-            <div class="artifact-item">
-                <strong>Pixmap:</strong> <span class="available">✅ Available</span>
-                ({artifacts.get('pixmap', 'N/A')})
-            </div>
-                         <div class="artifact-item">
-                 <strong>Text:</strong> <span class="{'available' if text_available else 'unavailable'}">
-                     {'✅ Available' if text_available else '❌ Not available'}
-                 </span>
-                 {f"({artifacts.get('text', 'N/A')})" if text_available else ""}
-             </div>
-        </div>
-        
-        <div class="content">
-            <h3>Page {page_number} Content</h3>
-                         <p>In production mode, this would contain the LLM-generated structured HTML 
-             representation of the PDF page content.</p>
-             
-             {"<p><strong>Text extraction available:</strong> The LLM would use the extracted text to understand the document content.</p>" if text_available else ""}
-            
-            <p><strong>Processing info:</strong></p>
-            <ul>
-                <li>PDF dimensions: {page_data['pdf_metadata']['pdf_width']:.1f} x {page_data['pdf_metadata']['pdf_height']:.1f} pts</li>
-                <li>Page rotation: {page_data['pdf_metadata']['rotation']}°</li>
-                <li>High-res DPI: {page_data['pdf_metadata']['high_res_dpi']}</li>
-            </ul>
-        </div>
-    </div>
-</body>
-</html>"""
-            
-            # Save mock HTML file
-            html_file = os.path.join(page_dir, f"page_{page_number}.html")
-            with open(html_file, 'w', encoding='utf-8') as f:
-                f.write(mock_html)
-            
-            html_results.append(PageHTMLResult(
-                page_number=page_number,
-                success=True,
-                html_content=mock_html,
-                html_file_path=html_file,
-                processing_time=0.1,  # Mock processing time
-                token_usage={"prompt_tokens": 0, "completion_tokens": 0}
-            ))
-            
-            print(f"     ✅ Mock HTML saved: {html_file}")
-        
-        return html_results
     
     def _serialize_html_result(self, result: PageHTMLResult) -> Dict:
         """Convert PageHTMLResult to a serializable dictionary."""

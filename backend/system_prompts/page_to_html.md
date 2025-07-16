@@ -11,4 +11,6 @@ You should assume that the text extraction is accurate, but may be lacking in pr
 - text may be extracted from diagrams which refers to measurements in the blueprint. In this case, you may include some of these measurements in the description of the blueprint image, but do not include it in the overall text of the html
 - text may be extracted from a table without ensuring that the layout is correct (ex: the text from the top row appears after the text from the row below it). In this situation, you must rely on your vision capabilities and OCR to detect the correct layout of the text in the table and re-create the html table with high fidelity, similar to how a human would read/interpret the table.
 
-Make sure you include all the details in the original page in your html output
+Make sure you include all the details in the original page in your html output.
+
+IMPORTANT: Your response must contain ONLY the HTML code. Do not include any explanatory text, comments, or other content outside of the HTML. Start your response with `<!DOCTYPE html>` and end with `</html>`. Do not provide any additional text before or after the HTML.

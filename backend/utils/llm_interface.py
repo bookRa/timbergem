@@ -539,19 +539,19 @@ class LLMInterface:
         Returns:
             LLMResponse containing the generated HTML
         """
-        # Build user message
-        user_message_parts = [
-            f"Please convert page {page_number} of this construction document into structured HTML."
-        ]
+        # Build user message with only the extracted text (system prompt provides all instructions)
+        user_message = ""
         
         # Add text content if available
         if text_path and os.path.exists(text_path):
             with open(text_path, 'r', encoding='utf-8') as f:
                 text_content = f.read().strip()
             if text_content:
-                user_message_parts.append(f"\n**Extracted Text:**\n{text_content}")
+                user_message = text_content
         
-        user_message = "\n".join(user_message_parts)
+        # If no text available, provide empty message (image will be primary input)
+        if not user_message:
+            user_message = ""
         
         # Prepare images
         images = [pixmap_path] if os.path.exists(pixmap_path) else []
