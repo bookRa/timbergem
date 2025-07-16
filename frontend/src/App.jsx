@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 import DefineKeyAreasTab from './components/DefineKeyAreasTab';
 import KnowledgeGraphTab from './components/KnowledgeGraphTab';
 import ScopeGroupsTab from './components/ScopeGroupsTab';
 import ScopeAnnotationsTab from './components/ScopeAnnotationsTab';
+import PDFToHTMLTab from './components/PDFToHTMLTab';
 
 const API_BASE_URL = '';
 
@@ -13,9 +14,10 @@ function App() {
     const [docInfo, setDocInfo] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState('');
-    const [activeTab, setActiveTab] = useState('define-key-areas');
+    const [activeTab, setActiveTab] = useState('pdf-to-html');
     const [allAnnotations, setAllAnnotations] = useState({});
     const [pageSummaries, setPageSummaries] = useState({});
+    const [isTestingMode, setIsTestingMode] = useState(true);
     const [projectData, setProjectData] = useState({
         keyAreas: {},
         summaries: {},
@@ -24,7 +26,40 @@ function App() {
         scopeAnnotations: {}
     });
 
+    // Auto-load TEST document when in testing mode
+    useEffect(() => {
+        if (isTestingMode) {
+            simulateTestUpload();
+        }
+    }, [isTestingMode]);
+
+    const simulateTestUpload = async () => {
+        console.log('Simulating TEST document upload...');
+        try {
+            // Simulate the document info for the TEST document
+            const testDocInfo = {
+                docId: 'TEST',
+                totalPages: 7,
+                message: 'TEST document loaded for simulation',
+                // Simulate file metadata
+                filename: 'Test Construction Document.pdf'
+            };
+            
+            setDocInfo(testDocInfo);
+            setError('');
+            
+            // Load existing data if available
+            await loadExistingData('TEST');
+            
+            console.log('TEST document simulation loaded successfully');
+        } catch (err) {
+            console.error('Error simulating TEST upload:', err);
+            setError('Failed to load TEST document for simulation');
+        }
+    };
+
     const tabs = [
+        { id: 'pdf-to-html', label: 'PDF-to-HTML Pipeline', component: PDFToHTMLTab },
         { id: 'define-key-areas', label: 'Define Key Areas', component: DefineKeyAreasTab },
         { id: 'knowledge-graph', label: 'Knowledge Graph', component: KnowledgeGraphTab },
         { id: 'scope-groups', label: 'Scope Groups', component: ScopeGroupsTab },
@@ -165,29 +200,52 @@ function App() {
 
         const TabComponent = activeTabConfig.component;
         
-        return (
-            <TabComponent
-                docInfo={docInfo}
-                allAnnotations={allAnnotations}
-                pageSummaries={pageSummaries}
-                projectData={projectData}
-                onAnnotationsChange={handleAnnotationsChange}
-                onSummaryChange={handleSummaryChange}
-                onProjectDataChange={setProjectData}
-                onSaveData={saveProjectData}
-            />
-        );
+        const commonProps = {
+            docInfo,
+            allAnnotations,
+            pageSummaries,
+            projectData,
+            onAnnotationsChange: handleAnnotationsChange,
+            onSummaryChange: handleSummaryChange,
+            onProjectDataChange: setProjectData,
+            onSaveData: saveProjectData
+        };
+
+        // PDF-to-HTML tab only needs docInfo
+        if (activeTabConfig.id === 'pdf-to-html') {
+            return <TabComponent docInfo={docInfo} />;
+        }
+
+        return <TabComponent {...commonProps} />;
     };
 
     return (
         <div className="app-container">
             <header className="app-header">
                 <h1>TimberGem 💎 - Context Modeler</h1>
-                <div className="upload-section">
-                    <input type="file" onChange={handleFileChange} accept=".pdf" />
-                    <button onClick={handleUpload} disabled={!file || isProcessing}>
-                        {isProcessing ? 'Processing...' : 'Upload & Process'}
-                    </button>
+                <div className="header-controls">
+                    <div className="testing-mode-section">
+                        <button
+                            onClick={() => setIsTestingMode(!isTestingMode)}
+                            className={`testing-mode-button ${isTestingMode ? 'active' : ''}`}
+                        >
+                            {isTestingMode ? '🧪 Testing Mode ON' : '🧪 Testing Mode OFF'}
+                        </button>
+                        {isTestingMode && (
+                            <span className="testing-mode-info">
+                                Auto-loaded TEST document for simulation
+                            </span>
+                        )}
+                    </div>
+                    
+                    {!isTestingMode && (
+                        <div className="upload-section">
+                            <input type="file" onChange={handleFileChange} accept=".pdf" />
+                            <button onClick={handleUpload} disabled={!file || isProcessing}>
+                                {isProcessing ? 'Processing...' : 'Upload & Process'}
+                            </button>
+                        </div>
+                    )}
                 </div>
                 {error && <p className="error-message">{error}</p>}
             </header>
