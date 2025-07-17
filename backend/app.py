@@ -162,7 +162,7 @@ def upload_and_process_pdf():
                     {
                         "message": "File processed successfully",
                         "docId": doc_id,
-                        "pageCount": num_pages,
+                        "totalPages": num_pages,
                         "processing_summary": processing_results["processing_summary"]
                     }
                 ),

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
 import DefineKeyAreasTab from './components/DefineKeyAreasTab';
@@ -14,10 +14,19 @@ function App() {
     const [docInfo, setDocInfo] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState('');
-    const [activeTab, setActiveTab] = useState('pdf-to-html');
+    const [activeTab, setActiveTab] = useState('define-key-areas');
     const [allAnnotations, setAllAnnotations] = useState({});
     const [pageSummaries, setPageSummaries] = useState({});
-    const [isTestingMode, setIsTestingMode] = useState(true);
+    
+    // LLM Provider selection
+    const [selectedLlmProvider, setSelectedLlmProvider] = useState('mock');
+    
+    // Pixmap tracking state
+    const [pixmapStatus, setPixmapStatus] = useState({}); // {pageNum: 'loading'|'ready'|'error'}
+    const [pixmapNotifications, setPixmapNotifications] = useState([]);
+    const [htmlPipelineTriggered, setHtmlPipelineTriggered] = useState(false); // Track if HTML pipeline was already triggered
+    const pixmapCheckIntervalRef = useRef(null); // Store the interval reference
+    
     const [projectData, setProjectData] = useState({
         keyAreas: {},
         summaries: {},
@@ -26,45 +35,172 @@ function App() {
         scopeAnnotations: {}
     });
 
-    // Auto-load TEST document when in testing mode
-    useEffect(() => {
-        if (isTestingMode) {
-            simulateTestUpload();
-        }
-    }, [isTestingMode]);
-
-    const simulateTestUpload = async () => {
-        console.log('Simulating TEST document upload...');
-        try {
-            // Simulate the document info for the TEST document
-            const testDocInfo = {
-                docId: 'TEST',
-                totalPages: 7,
-                message: 'TEST document loaded for simulation',
-                // Simulate file metadata
-                filename: 'Test Construction Document.pdf'
-            };
-            
-            setDocInfo(testDocInfo);
-            setError('');
-            
-            // Load existing data if available
-            await loadExistingData('TEST');
-            
-            console.log('TEST document simulation loaded successfully');
-        } catch (err) {
-            console.error('Error simulating TEST upload:', err);
-            setError('Failed to load TEST document for simulation');
-        }
-    };
+    // Remove auto-load TEST document functionality
 
     const tabs = [
-        { id: 'pdf-to-html', label: 'PDF-to-HTML Pipeline', component: PDFToHTMLTab },
         { id: 'define-key-areas', label: 'Define Key Areas', component: DefineKeyAreasTab },
+        { id: 'html-representations', label: 'HTML Page Representations', component: PDFToHTMLTab },
         { id: 'knowledge-graph', label: 'Knowledge Graph', component: KnowledgeGraphTab },
         { id: 'scope-groups', label: 'Scope Groups', component: ScopeGroupsTab },
         { id: 'scope-annotations', label: 'Scope Annotations', component: ScopeAnnotationsTab }
     ];
+
+    // Pixmap availability checking
+    const checkPixmapAvailability = async (docId, totalPages) => {
+        console.log(`🔍 Starting pixmap availability check for document ${docId} with ${totalPages} pages...`);
+        
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+            setPixmapStatus(prev => ({ ...prev, [pageNum]: 'loading' }));
+            checkPagePixmap(docId, pageNum);
+        }
+        
+        // Set up periodic checking for pages that aren't ready yet
+        const checkInterval = setInterval(() => {
+            console.log(`🔄 Periodic pixmap check...`);
+            Object.entries(pixmapStatus).forEach(([pageNum, status]) => {
+                if (status === 'loading' || status === 'error') {
+                    console.log(`Rechecking page ${pageNum} (status: ${status})`);
+                    checkPagePixmap(docId, parseInt(pageNum));
+                }
+            });
+        }, 5000);
+
+        // Store the interval reference
+        pixmapCheckIntervalRef.current = checkInterval;
+
+        // Clear interval after 2 minutes
+        setTimeout(() => {
+            console.log(`⏰ Stopping pixmap check after 2 minutes`);
+            clearInterval(checkInterval);
+            pixmapCheckIntervalRef.current = null;
+        }, 120000);
+    };
+
+    // Check if all pixmaps are ready and trigger HTML pipeline (only once)
+    useEffect(() => {
+        if (!docInfo || htmlPipelineTriggered) return;
+        
+        const allPageNums = Array.from({ length: docInfo.totalPages }, (_, i) => i + 1);
+        const allReady = allPageNums.every(pageNum => pixmapStatus[pageNum] === 'ready');
+        const hasAnyStatus = allPageNums.some(pageNum => pixmapStatus[pageNum]);
+        
+        if (allReady && hasAnyStatus) {
+            console.log('All pixmaps ready! Automatically starting HTML pipeline...');
+            addPixmapNotification('🚀 All images ready! Starting HTML generation...');
+            setHtmlPipelineTriggered(true); // Prevent triggering again
+            
+            // Stop periodic pixmap checking since all are ready
+            if (pixmapCheckIntervalRef.current) {
+                console.log('✅ Stopping pixmap periodic check - all ready');
+                clearInterval(pixmapCheckIntervalRef.current);
+                pixmapCheckIntervalRef.current = null;
+            }
+            
+            startHtmlPipeline();
+        }
+    }, [pixmapStatus, docInfo, htmlPipelineTriggered]);
+
+    const startHtmlPipeline = async () => {
+        if (!docInfo) return;
+        
+        try {
+            console.log(`Starting HTML pipeline for document ${docInfo.docId}`);
+            
+            // Prepare config based on selected provider
+            const config = {
+                llm_provider: selectedLlmProvider,
+                dpi: 200,
+                high_res_dpi: 300,
+                max_concurrent_requests: 3
+            };
+            
+            // Add provider-specific configuration
+            if (selectedLlmProvider === 'gemini') {
+                config.llm_model = 'gemini-2.5-pro';
+                // Note: API key will be loaded from environment variables on backend
+            }
+            
+            const response = await axios.post('/api/process_pdf_to_html', {
+                docId: docInfo.docId,
+                config: config
+            });
+            
+            console.log('HTML pipeline started successfully:', response.data);
+            addPixmapNotification('✅ HTML generation completed!');
+            
+        } catch (error) {
+            console.error('Failed to start HTML pipeline:', error);
+            addPixmapNotification('❌ HTML generation failed');
+        }
+    };
+
+    const checkPagePixmap = async (docId, pageNum) => {
+        try {
+            // Check the legacy format first (created by app.py upload endpoint)
+            const legacyImageUrl = `/data/processed/${docId}/page_${pageNum}.png`;
+            console.log(`Checking pixmap for page ${pageNum}: ${legacyImageUrl}`);
+            const legacyResponse = await fetch(legacyImageUrl, { method: 'HEAD' });
+            
+            if (legacyResponse.ok) {
+                console.log(`✅ Page ${pageNum} pixmap found (legacy format)`);
+                setPixmapStatus(prev => {
+                    if (prev[pageNum] !== 'ready') {
+                        // Add notification for newly ready pixmap
+                        addPixmapNotification(`🖼️ Page ${pageNum} image is ready!`);
+                        return { ...prev, [pageNum]: 'ready' };
+                    }
+                    return prev;
+                });
+                return;
+            }
+            
+            // If legacy doesn't exist, check the high-res pixmap format
+            const pixmapImageUrl = `/data/processed/${docId}/page_${pageNum}/page_${pageNum}_pixmap.png`;
+            console.log(`Legacy not found, checking pixmap format: ${pixmapImageUrl}`);
+            const pixmapResponse = await fetch(pixmapImageUrl, { method: 'HEAD' });
+            
+            if (pixmapResponse.ok) {
+                console.log(`✅ Page ${pageNum} pixmap found (high-res format)`);
+                setPixmapStatus(prev => {
+                    if (prev[pageNum] !== 'ready') {
+                        // Add notification for newly ready pixmap
+                        addPixmapNotification(`🖼️ Page ${pageNum} image is ready!`);
+                        return { ...prev, [pageNum]: 'ready' };
+                    }
+                    return prev;
+                });
+            } else {
+                console.log(`❌ Page ${pageNum} pixmap not found yet`);
+                setPixmapStatus(prev => ({ ...prev, [pageNum]: 'loading' }));
+            }
+        } catch (error) {
+            console.error(`Error checking page ${pageNum} pixmap:`, error);
+            setPixmapStatus(prev => ({ ...prev, [pageNum]: 'error' }));
+        }
+    };
+
+    // Pixmap notification functions
+    const addPixmapNotification = (message) => {
+        const id = Date.now() + Math.random();
+        const newNotification = { id, message };
+        
+        setPixmapNotifications(prev => {
+            // Check if we already have a notification with the same message
+            if (prev.some(notif => notif.message === message)) {
+                return prev;
+            }
+            return [...prev, newNotification];
+        });
+        
+        // Auto-remove notification after 4 seconds
+        setTimeout(() => {
+            setPixmapNotifications(prev => prev.filter(notif => notif.id !== id));
+        }, 4000);
+    };
+
+    const removePixmapNotification = (id) => {
+        setPixmapNotifications(prev => prev.filter(notif => notif.id !== id));
+    };
 
     const handleFileChange = (e) => {
         const selectedFile = e.target.files[0];
@@ -74,6 +210,9 @@ function App() {
             setDocInfo(null);
             setAllAnnotations({});
             setPageSummaries({});
+            setPixmapStatus({});
+            setPixmapNotifications([]);
+            setHtmlPipelineTriggered(false); // Reset for new document
             setProjectData({
                 keyAreas: {},
                 summaries: {},
@@ -110,6 +249,9 @@ function App() {
             
             // Load existing data if available
             await loadExistingData(response.data.docId);
+            
+            // Start checking for pixmaps
+            await checkPixmapAvailability(response.data.docId, response.data.totalPages);
 
         } catch (err) {
             const errorMessage = err.response?.data?.error || err.message || 'An unknown error occurred during upload.';
@@ -211,9 +353,18 @@ function App() {
             onSaveData: saveProjectData
         };
 
-        // PDF-to-HTML tab only needs docInfo
-        if (activeTabConfig.id === 'pdf-to-html') {
+        // HTML representations tab only needs docInfo
+        if (activeTabConfig.id === 'html-representations') {
             return <TabComponent docInfo={docInfo} />;
+        }
+
+        // Define Key Areas tab gets additional pixmap props
+        if (activeTabConfig.id === 'define-key-areas') {
+            return <TabComponent 
+                {...commonProps} 
+                pixmapStatus={pixmapStatus}
+                onPixmapCheck={(pageNum) => checkPagePixmap(docInfo.docId, pageNum)}
+            />;
         }
 
         return <TabComponent {...commonProps} />;
@@ -224,21 +375,27 @@ function App() {
             <header className="app-header">
                 <h1>TimberGem 💎 - Context Modeler</h1>
                 <div className="header-controls">
-                    <div className="testing-mode-section">
-                        <button
-                            onClick={() => setIsTestingMode(!isTestingMode)}
-                            className={`testing-mode-button ${isTestingMode ? 'active' : ''}`}
+                    {/* LLM Provider Selection */}
+                    <div className="llm-provider-section">
+                        <label htmlFor="llm-provider">LLM Provider:</label>
+                        <select
+                            id="llm-provider"
+                            value={selectedLlmProvider}
+                            onChange={(e) => setSelectedLlmProvider(e.target.value)}
+                            className="llm-provider-select"
                         >
-                            {isTestingMode ? '🧪 Testing Mode ON' : '🧪 Testing Mode OFF'}
-                        </button>
-                        {isTestingMode && (
-                            <span className="testing-mode-info">
-                                Auto-loaded TEST document for simulation
-                            </span>
-                        )}
+                            <option value="mock">Mock (Fast Testing)</option>
+                            <option value="gemini">Gemini (Production)</option>
+                        </select>
+                        <span className="provider-info">
+                            {selectedLlmProvider === 'mock' 
+                                ? '🧪 Simulated HTML generation (2-3s per page)' 
+                                : '🚀 Real AI-powered generation (requires GEMINI_API_KEY)'
+                            }
+                        </span>
                     </div>
                     
-                    {!isTestingMode && (
+                    {!isProcessing && (
                         <div className="upload-section">
                             <input type="file" onChange={handleFileChange} accept=".pdf" />
                             <button onClick={handleUpload} disabled={!file || isProcessing}>
@@ -271,6 +428,18 @@ function App() {
             )}
 
             {isProcessing && <div className="spinner"></div>}
+
+            {/* Pixmap Notifications */}
+            {pixmapNotifications.length > 0 && (
+                <div className="pixmap-notifications">
+                    {pixmapNotifications.map(notification => (
+                        <div key={notification.id} className="pixmap-notification">
+                            {notification.message}
+                            <button onClick={() => removePixmapNotification(notification.id)}>✕</button>
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }

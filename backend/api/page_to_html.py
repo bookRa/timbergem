@@ -142,19 +142,24 @@ def process_pdf_to_html():
         # Get configuration parameters
         config_data = data.get("config", {})
         
+        # Auto-load API keys from environment variables
+        gemini_api_key = config_data.get("gemini_api_key") or os.getenv("GEMINI_API_KEY")
+        openai_api_key = config_data.get("openai_api_key") or os.getenv("OPENAI_API_KEY")  
+        anthropic_api_key = config_data.get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY")
+        
         config = PageToHTMLConfig(
             llm_provider=config_data.get("llm_provider", "mock"),
             llm_model=config_data.get("llm_model"),
             dpi=config_data.get("dpi", 200),
             high_res_dpi=config_data.get("high_res_dpi", 300),
             max_concurrent_requests=config_data.get("max_concurrent_requests", 7),
-            gemini_api_key=config_data.get("gemini_api_key"),
-            openai_api_key=config_data.get("openai_api_key"),
-            anthropic_api_key=config_data.get("anthropic_api_key")
+            gemini_api_key=gemini_api_key,
+            openai_api_key=openai_api_key,
+            anthropic_api_key=anthropic_api_key
         )
         
         print(f"🚀 Processing PDF to HTML for document: {doc_id}")
-        print(f"   Config: {config.llm_provider} provider, testing={config.testing_mode}")
+        print(f"   Config: {config.llm_provider} provider")
         
         # Determine paths
         processed_folder = os.path.abspath(

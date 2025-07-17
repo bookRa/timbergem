@@ -472,7 +472,7 @@ class ClaudeProvider(LLMProvider):
 
 
 class MockProvider(LLMProvider):
-    """Mock provider for testing purposes."""
+    """Mock provider for testing purposes with realistic async timing."""
     
     def __init__(self, mock_response: str = "Mock HTML response"):
         self.mock_response = mock_response
@@ -481,28 +481,118 @@ class MockProvider(LLMProvider):
         return True
     
     async def generate_response(self, request: LLMRequest) -> LLMResponse:
-        """Generate a mock response for testing."""
-        # Simulate processing time
-        await asyncio.sleep(0.1)
+        """Generate a mock response for testing with realistic timing simulation."""
+        import random
+        import time
         
-        # Generate a simple mock HTML response
+        # Simulate realistic processing time: 2-3 seconds with jitter
+        base_time = random.uniform(2.0, 3.0)  # Base 2-3 second range
+        jitter = random.uniform(-0.5, 0.5)    # Add ±0.5 second jitter
+        processing_time = max(1.0, base_time + jitter)  # Ensure minimum 1 second
+        
+        print(f"     🧪 Mock provider simulating {processing_time:.1f}s processing...")
+        await asyncio.sleep(processing_time)
+        
+        # Generate a more realistic mock HTML response
+        page_info = ""
+        if request.images:
+            # Extract some info from the request for realism
+            page_info = f"<p>📄 Processing page with {len(request.images)} image(s)</p>"
+        
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        
         mock_html = f"""<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Mock Page Conversion</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock Construction Document Page</title>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        .mock-content {{ border: 1px solid #ccc; padding: 15px; }}
+        body {{ 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background-color: #f9f9f9;
+            line-height: 1.6;
+        }}
+        .document-header {{ 
+            background: #2c5aa0;
+            color: white;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }}
+        .content-section {{ 
+            background: white;
+            border: 1px solid #ddd; 
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        .technical-specs {{ 
+            background: #f0f8ff;
+            border-left: 4px solid #2c5aa0;
+            padding: 15px;
+            margin: 10px 0;
+        }}
+        .footer {{ 
+            font-size: 12px; 
+            color: #666; 
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }}
     </style>
 </head>
 <body>
-    <div class="mock-content">
-        <h2>Mock Page Conversion</h2>
-        <p>This is a mock response for testing purposes.</p>
-        <p>System prompt length: {len(request.system_prompt)} characters</p>
-        <p>User message length: {len(request.user_message)} characters</p>
-        <p>Images provided: {len(request.images) if request.images else 0}</p>
-        <p>Generated at: {asyncio.get_event_loop().time()}</p>
+    <div class="document-header">
+        <h1>🏗️ Construction Document - Mock Page</h1>
+        <p>Professional Document Conversion Simulation</p>
+    </div>
+    
+    <div class="content-section">
+        <h2>📋 Project Information</h2>
+        <p>This is a mock HTML conversion of a construction document page, simulating the output of an AI-powered document processing system.</p>
+        {page_info}
+        <ul>
+            <li><strong>Project Type:</strong> Commercial Construction</li>
+            <li><strong>Document Section:</strong> Technical Specifications</li>
+            <li><strong>Page Classification:</strong> Detailed Plans</li>
+        </ul>
+    </div>
+    
+    <div class="technical-specs">
+        <h3>🔧 Technical Specifications</h3>
+        <p>Mock technical content that would typically be extracted from construction drawings, including:</p>
+        <ul>
+            <li>Structural dimensions and measurements</li>
+            <li>Material specifications and requirements</li>
+            <li>Building codes and compliance notes</li>
+            <li>Installation procedures and guidelines</li>
+        </ul>
+    </div>
+    
+    <div class="content-section">
+        <h3>📐 Drawing Elements</h3>
+        <p>This section would contain detailed information about visual elements found in the construction drawing:</p>
+        <ul>
+            <li>Floor plans and elevation views</li>
+            <li>Dimensioning and annotation callouts</li>
+            <li>Symbol legends and drawing notes</li>
+            <li>Scale references and grid systems</li>
+        </ul>
+    </div>
+    
+    <div class="footer">
+        <p><strong>🤖 Processing Metadata:</strong></p>
+        <ul>
+            <li>Provider: Mock LLM (Testing Mode)</li>
+            <li>System prompt: {len(request.system_prompt)} characters</li>
+            <li>Text content: {len(request.user_message)} characters</li>
+            <li>Images processed: {len(request.images) if request.images else 0}</li>
+            <li>Processing time: {processing_time:.1f} seconds</li>
+            <li>Generated: {timestamp}</li>
+        </ul>
     </div>
 </body>
 </html>"""
@@ -510,7 +600,10 @@ class MockProvider(LLMProvider):
         return LLMResponse(
             content=mock_html,
             success=True,
-            usage={"prompt_tokens": 100, "completion_tokens": 200}
+            usage={
+                "prompt_tokens": random.randint(800, 1200), 
+                "completion_tokens": random.randint(1500, 2000)
+            }
         )
 
 

@@ -7,7 +7,9 @@ const DefineKeyAreasTab = ({
     pageSummaries, 
     onAnnotationsChange, 
     onSummaryChange, 
-    onSaveData 
+    onSaveData,
+    pixmapStatus = {},
+    onPixmapCheck = () => {}
 }) => {
     const [selectedTool, setSelectedTool] = useState(null);
     const [isDrawing, setIsDrawing] = useState(false);
@@ -26,6 +28,59 @@ const DefineKeyAreasTab = ({
         stateRef.current = { selectedTool, isDrawing, drawingPage };
     }, [selectedTool, isDrawing, drawingPage]);
 
+    // Reload canvas backgrounds when pixmaps become available
+    useEffect(() => {
+        Object.entries(pixmapStatus).forEach(([pageNum, status]) => {
+            const pageNumber = parseInt(pageNum);
+            if (status === 'ready' && fabricCanvases[pageNumber]) {
+                const canvas = fabricCanvases[pageNumber];
+                if (!canvas.backgroundImage) {
+                    console.log(`Loading background for page ${pageNumber} (pixmap now ready)`);
+                    const legacyImageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}.png`;
+                    fabric.Image.fromURL(legacyImageUrl, (img) => {
+                        if (!canvas || canvas._disposed) return;
+                        
+                        // Same dynamic sizing logic as in initializeCanvas
+                        const imageAspectRatio = img.width / img.height;
+                        const maxCanvasWidth = 800;
+                        const maxCanvasHeight = 600;
+                        
+                        let actualCanvasWidth, actualCanvasHeight, scale;
+                        
+                        if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
+                            actualCanvasWidth = maxCanvasWidth;
+                            actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
+                            scale = maxCanvasWidth / img.width;
+                        } else {
+                            actualCanvasHeight = maxCanvasHeight;
+                            actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
+                            scale = maxCanvasHeight / img.height;
+                        }
+                        
+                        img.scale(scale);
+                        canvas.setWidth(actualCanvasWidth);
+                        canvas.setHeight(actualCanvasHeight);
+                        
+                        setCanvasDimensions(prev => ({
+                            ...prev,
+                            [pageNumber]: {
+                                width: actualCanvasWidth,
+                                height: actualCanvasHeight
+                            }
+                        }));
+                        
+                        canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
+                            scaleX: scale,
+                            scaleY: scale
+                        });
+                        
+                        console.log(`Background loaded for page ${pageNumber}`);
+                    });
+                }
+            }
+        });
+    }, [pixmapStatus, fabricCanvases, docInfo.docId]);
+
     const annotationTools = [
         { id: 'TitleBlock', label: 'Title Block', color: '#FF6B6B', icon: '📋' },
         { id: 'DrawingArea', label: 'Drawing Area', color: '#4ECDC4', icon: '📐' },
@@ -42,7 +97,7 @@ const DefineKeyAreasTab = ({
             console.log(`Canvas initialization attempt ${attempts}`);
             
             let successCount = 0;
-            for (let pageNum = 1; pageNum <= docInfo.pageCount; pageNum++) {
+            for (let pageNum = 1; pageNum <= docInfo.totalPages; pageNum++) {
                 const canvasElement = document.getElementById(`canvas-${pageNum}`);
                 if (canvasElement && !fabricCanvases[pageNum]) {
                     initializeCanvas(pageNum);
@@ -53,7 +108,7 @@ const DefineKeyAreasTab = ({
             console.log(`Initialized ${successCount} canvases on attempt ${attempts}`);
             
             // Retry if not all canvases were initialized and we haven't exceeded max attempts
-            if (successCount < docInfo.pageCount && attempts < maxAttempts) {
+            if (successCount < docInfo.totalPages && attempts < maxAttempts) {
                 setTimeout(initializeAllCanvases, 500);
             }
         };
@@ -68,7 +123,7 @@ const DefineKeyAreasTab = ({
                 if (canvas) canvas.dispose();
             });
         };
-    }, [docInfo.pageCount, docInfo.docId]);
+    }, [docInfo.totalPages, docInfo.docId]);
 
     const initializeCanvas = (pageNumber) => {
         const canvasId = `canvas-${pageNumber}`;
@@ -101,9 +156,17 @@ const DefineKeyAreasTab = ({
             return newCanvases;
         });
 
-        // Load background image
-        const imageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}.png`;
-        fabric.Image.fromURL(imageUrl, (img) => {
+        // Check if pixmap is ready before loading background image
+        const pageStatus = pixmapStatus[pageNumber];
+        if (pageStatus !== 'ready') {
+            console.log(`Page ${pageNumber} pixmap not ready yet (status: ${pageStatus}), skipping background load`);
+            return;
+        }
+
+        // Load background image - try legacy format first, then high-res pixmap
+        const legacyImageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}.png`;
+        
+        fabric.Image.fromURL(legacyImageUrl, (img) => {
             if (!canvas || canvas._disposed) return;
             
             // DYNAMIC CANVAS SIZING: Calculate optimal canvas size based on image aspect ratio
@@ -148,6 +211,53 @@ const DefineKeyAreasTab = ({
             canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
                 scaleX: scale,
                 scaleY: scale
+            });
+        }, (error) => {
+            console.log(`Failed to load legacy image for page ${pageNumber}, trying high-res pixmap`);
+            
+            // Try high-res pixmap format
+            const pixmapImageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}/page_${pageNumber}_pixmap.png`;
+            
+            fabric.Image.fromURL(pixmapImageUrl, (img) => {
+                if (!canvas || canvas._disposed) return;
+                
+                // Same sizing logic for high-res pixmap
+                const imageAspectRatio = img.width / img.height;
+                const maxCanvasWidth = 800;
+                const maxCanvasHeight = 600;
+                
+                let actualCanvasWidth, actualCanvasHeight, scale;
+                
+                if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
+                    actualCanvasWidth = maxCanvasWidth;
+                    actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
+                    scale = maxCanvasWidth / img.width;
+                } else {
+                    actualCanvasHeight = maxCanvasHeight;
+                    actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
+                    scale = maxCanvasHeight / img.height;
+                }
+                
+                img.scale(scale);
+                canvas.setWidth(actualCanvasWidth);
+                canvas.setHeight(actualCanvasHeight);
+                
+                setCanvasDimensions(prev => ({
+                    ...prev,
+                    [pageNumber]: {
+                        width: actualCanvasWidth,
+                        height: actualCanvasHeight
+                    }
+                }));
+                
+                console.log(`Canvas ${pageNumber} initialized with high-res pixmap: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)}`);
+                
+                canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
+                    scaleX: scale,
+                    scaleY: scale
+                });
+            }, (pixmapError) => {
+                console.error(`Failed to load both legacy and high-res images for page ${pageNumber}:`, error, pixmapError);
             });
         });
 
@@ -558,10 +668,54 @@ const DefineKeyAreasTab = ({
         </div>
     );
 
+    const renderPageStatus = (pageNumber) => {
+        const status = pixmapStatus[pageNumber];
+        
+        switch (status) {
+            case 'ready':
+                return (
+                    <div className="page-status ready">
+                        ✅ Image ready
+                    </div>
+                );
+            case 'loading':
+                return (
+                    <div className="page-status loading">
+                        🔄 Loading image...
+                    </div>
+                );
+            case 'error':
+                return (
+                    <div className="page-status error">
+                        ❌ Image failed to load
+                        <button 
+                            onClick={() => onPixmapCheck(pageNumber)}
+                            className="retry-button"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                );
+            default:
+                return (
+                    <div className="page-status not-available">
+                        ⏳ Image not yet available
+                        <button 
+                            onClick={() => onPixmapCheck(pageNumber)}
+                            className="check-button"
+                        >
+                            Check
+                        </button>
+                    </div>
+                );
+        }
+    };
+
     const renderPageContent = (pageNumber) => (
         <div key={pageNumber} id={`page-content-${pageNumber}`} className="page-content">
             <div className="page-header">
                 <h3>Page {pageNumber}</h3>
+                {renderPageStatus(pageNumber)}
             </div>
             
             <div className="page-layout">
@@ -657,7 +811,7 @@ const DefineKeyAreasTab = ({
             {renderSidebar()}
             
             <div className="pages-container">
-                {Array.from({ length: docInfo.pageCount }, (_, i) => i + 1).map(pageNumber => 
+                {Array.from({ length: docInfo.totalPages }, (_, i) => i + 1).map(pageNumber => 
                     renderPageContent(pageNumber)
                 )}
             </div>

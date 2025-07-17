@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 
 const PDFToHTMLTab = ({ docInfo }) => {
     const [isProcessing, setIsProcessing] = useState(false);
@@ -7,34 +8,156 @@ const PDFToHTMLTab = ({ docInfo }) => {
     const [currentPage, setCurrentPage] = useState(null);
     const [completedPages, setCompletedPages] = useState([]);
     const [selectedPageNumber, setSelectedPageNumber] = useState(null);
-    const [isAutoMode, setIsAutoMode] = useState(false);
     const [toastNotifications, setToastNotifications] = useState([]);
+    const [htmlResults, setHtmlResults] = useState(null);
     const eventSourceRef = useRef(null);
 
-    // Auto-start simulation when component mounts in auto mode
+    // Check for existing HTML results when component loads
     useEffect(() => {
-        if (docInfo && isAutoMode) {
-            startSimulation();
+        if (docInfo) {
+            checkForExistingHtmlResults();
+            // Set up periodic checking for new HTML pages
+            const interval = setInterval(() => {
+                // Only check if we don't have all pages completed yet
+                if (completedPages.length < docInfo.totalPages) {
+                    checkForNewHtmlPages();
+                } else {
+                    console.log('All HTML pages completed, stopping periodic check');
+                    clearInterval(interval);
+                }
+            }, 10000); // Check every 10 seconds
+            return () => clearInterval(interval);
         }
+    }, [docInfo, completedPages.length]);
+
+    useEffect(() => {
         return () => {
             if (eventSourceRef.current) {
                 eventSourceRef.current.close();
             }
         };
-    }, [docInfo, isAutoMode]);
+    }, []);
+
+    const checkForExistingHtmlResults = async () => {
+        try {
+            const response = await axios.get(`/api/load_html_results/${docInfo.docId}`);
+            if (response.data.results) {
+                setHtmlResults(response.data.results);
+                const htmlGen = response.data.results.html_generation;
+                
+                // Set up completed pages from existing results
+                const existingPages = {};
+                const completedPageNumbers = [];
+                
+                htmlGen.results.forEach(pageResult => {
+                    if (pageResult.success) {
+                        const pageNum = pageResult.page_number;
+                        existingPages[pageNum] = {
+                            number: pageNum,
+                            htmlContent: '', // Will be loaded on demand
+                            processingTime: pageResult.processing_time,
+                            completedAt: Date.now()
+                        };
+                        completedPageNumbers.push(pageNum);
+                    }
+                });
+                
+                setProcessedPages(existingPages);
+                setCompletedPages(completedPageNumbers);
+                
+                if (completedPageNumbers.length > 0 && !selectedPageNumber) {
+                    setSelectedPageNumber(completedPageNumbers[0]);
+                    loadPageHtml(completedPageNumbers[0]);
+                }
+                
+                setProcessingStatus(`Found ${htmlGen.successful_pages} completed HTML pages`);
+                console.log(`Loaded existing HTML results: ${htmlGen.successful_pages} pages completed`);
+            } else {
+                setProcessingStatus('No HTML pages generated yet');
+            }
+        } catch (error) {
+            console.log('No existing HTML results found:', error);
+            setProcessingStatus('No HTML pages generated yet');
+        }
+    };
+
+    const checkForNewHtmlPages = async () => {
+        try {
+            const response = await axios.get(`/api/load_html_results/${docInfo.docId}`);
+            if (response.data.results) {
+                const htmlGen = response.data.results.html_generation;
+                const newCompletedPages = [];
+                
+                htmlGen.results.forEach(pageResult => {
+                    if (pageResult.success) {
+                        const pageNum = pageResult.page_number;
+                        if (!completedPages.includes(pageNum)) {
+                            newCompletedPages.push(pageNum);
+                            
+                            // Add to processed pages
+                            setProcessedPages(prev => ({
+                                ...prev,
+                                [pageNum]: {
+                                    number: pageNum,
+                                    htmlContent: '',
+                                    processingTime: pageResult.processing_time,
+                                    completedAt: Date.now()
+                                }
+                            }));
+                            
+                            // Add toast notification
+                            const completionOrder = completedPages.length + newCompletedPages.length;
+                            const ordinalSuffix = completionOrder === 1 ? 'st' : completionOrder === 2 ? 'nd' : completionOrder === 3 ? 'rd' : 'th';
+                            addToast(`📄 Page ${pageNum} HTML ready! (${completionOrder}${ordinalSuffix} to complete)`);
+                        }
+                    }
+                });
+                
+                if (newCompletedPages.length > 0) {
+                    setCompletedPages(prev => [...prev, ...newCompletedPages].sort((a, b) => a - b));
+                    setHtmlResults(response.data.results);
+                    
+                    // Auto-select first new page if none selected
+                    if (!selectedPageNumber && newCompletedPages.length > 0) {
+                        setSelectedPageNumber(newCompletedPages[0]);
+                        loadPageHtml(newCompletedPages[0]);
+                    }
+                }
+            }
+        } catch (error) {
+            // Silently handle errors for periodic checks
+        }
+    };
+
+    const loadPageHtml = async (pageNumber) => {
+        try {
+            const response = await axios.get(`/api/get_page_html/${docInfo.docId}/${pageNumber}`);
+            const htmlContent = response.data.htmlContent;
+            
+            setProcessedPages(prev => ({
+                ...prev,
+                [pageNumber]: {
+                    ...prev[pageNumber],
+                    htmlContent: htmlContent
+                }
+            }));
+        } catch (error) {
+            console.error(`Failed to load HTML for page ${pageNumber}:`, error);
+        }
+    };
 
     const startSimulation = () => {
         if (!docInfo) return;
 
         setIsProcessing(true);
-        setProcessingStatus('Initializing PDF-to-HTML pipeline...');
+        setProcessingStatus('Initializing HTML page generation...');
         setProcessedPages({});
         setCurrentPage(null);
         setCompletedPages([]);
         setToastNotifications([]); // Clear any existing toasts
 
         // Connect to the SSE stream to start simulation
-        const eventSource = new EventSource(`/api/simulate_pdf_to_html/TEST`);
+        const eventSource = new EventSource(`/api/simulate_pdf_to_html/${docInfo.docId}`);
         eventSourceRef.current = eventSource;
 
         eventSource.onmessage = (event) => {
@@ -122,6 +245,7 @@ const PDFToHTMLTab = ({ docInfo }) => {
                 // Auto-select the first completed page for display
                 if (!selectedPageNumber) {
                     setSelectedPageNumber(data.page);
+                    loadPageHtml(data.page);
                 }
                 break;
             
@@ -147,14 +271,6 @@ const PDFToHTMLTab = ({ docInfo }) => {
                     eventSourceRef.current.close();
                 }
                 break;
-        }
-    };
-
-    const toggleAutoMode = () => {
-        setIsAutoMode(!isAutoMode);
-        if (!isAutoMode && docInfo) {
-            // Starting auto mode
-            setProcessingStatus('Auto mode enabled - simulation will start automatically');
         }
     };
 
@@ -221,7 +337,12 @@ const PDFToHTMLTab = ({ docInfo }) => {
                             <button
                                 key={pageNum}
                                 className={`page-button ${selectedPageNumber === pageNum ? 'selected' : ''}`}
-                                onClick={() => setSelectedPageNumber(pageNum)}
+                                onClick={() => {
+                                    setSelectedPageNumber(pageNum);
+                                    if (!processedPages[pageNum]?.htmlContent) {
+                                        loadPageHtml(pageNum);
+                                    }
+                                }}
                                 title={`Completed in ${Math.round(processedPages[pageNum]?.processingTime || 0)}s`}
                             >
                                 <span className="page-number">Page {pageNum}</span>
@@ -272,29 +393,7 @@ const PDFToHTMLTab = ({ docInfo }) => {
     return (
         <div className="pdf-to-html-tab">
             <div className="tab-header">
-                <h2>PDF-to-HTML Pipeline</h2>
-                <div className="controls">
-                    <button
-                        onClick={toggleAutoMode}
-                        className={`auto-mode-button ${isAutoMode ? 'active' : ''}`}
-                    >
-                        {isAutoMode ? '🤖 Auto Mode ON' : '🤖 Auto Mode OFF'}
-                    </button>
-                    {!isAutoMode && (
-                        <button
-                            onClick={startSimulation}
-                            disabled={isProcessing || !docInfo}
-                            className="start-button"
-                        >
-                            {isProcessing ? 'Processing...' : 'Start Simulation'}
-                        </button>
-                    )}
-                    {isProcessing && (
-                        <button onClick={stopSimulation} className="stop-button">
-                            Stop
-                        </button>
-                    )}
-                </div>
+                <h2>HTML Page Representations</h2>
             </div>
 
             <div className="status-section">
