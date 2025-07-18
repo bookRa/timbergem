@@ -383,7 +383,7 @@ const PDFToHTMLTab = ({ docInfo }) => {
                         srcDoc={page.htmlContent}
                         title={`Page ${page.number} HTML`}
                         className="html-iframe"
-                        sandbox="allow-same-origin"
+                        sandbox="allow-same-origin allow-scripts"
                     />
                 </div>
             </div>

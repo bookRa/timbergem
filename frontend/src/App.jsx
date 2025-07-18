@@ -26,6 +26,7 @@ function App() {
     const [pixmapNotifications, setPixmapNotifications] = useState([]);
     const [htmlPipelineTriggered, setHtmlPipelineTriggered] = useState(false); // Track if HTML pipeline was already triggered
     const pixmapCheckIntervalRef = useRef(null); // Store the interval reference
+    const [processingStatus, setProcessingStatus] = useState(''); // Processing status text
     
     const [projectData, setProjectData] = useState({
         keyAreas: {},
@@ -48,6 +49,7 @@ function App() {
     // Pixmap availability checking
     const checkPixmapAvailability = async (docId, totalPages) => {
         console.log(`🔍 Starting pixmap availability check for document ${docId} with ${totalPages} pages...`);
+        setProcessingStatus(`🖼️ Processing ${totalPages} page${totalPages > 1 ? 's' : ''}...`);
         
         for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
             setPixmapStatus(prev => ({ ...prev, [pageNum]: 'loading' }));
@@ -86,6 +88,7 @@ function App() {
         
         if (allReady && hasAnyStatus) {
             console.log('All pixmaps ready! Automatically starting HTML pipeline...');
+            setProcessingStatus('🚀 Starting HTML generation...');
             addPixmapNotification('🚀 All images ready! Starting HTML generation...');
             setHtmlPipelineTriggered(true); // Prevent triggering again
             
@@ -126,7 +129,13 @@ function App() {
             });
             
             console.log('HTML pipeline started successfully:', response.data);
+            setProcessingStatus('✅ HTML generation completed!');
             addPixmapNotification('✅ HTML generation completed!');
+            
+            // Clear processing status after a delay
+            setTimeout(() => {
+                setProcessingStatus('');
+            }, 3000);
             
         } catch (error) {
             console.error('Failed to start HTML pipeline:', error);
@@ -147,6 +156,8 @@ function App() {
                     if (prev[pageNum] !== 'ready') {
                         // Add notification for newly ready pixmap
                         addPixmapNotification(`🖼️ Page ${pageNum} image is ready!`);
+                        // Update processing status with current progress
+                        updateProcessingProgress(pageNum, docId);
                         return { ...prev, [pageNum]: 'ready' };
                     }
                     return prev;
@@ -165,6 +176,8 @@ function App() {
                     if (prev[pageNum] !== 'ready') {
                         // Add notification for newly ready pixmap
                         addPixmapNotification(`🖼️ Page ${pageNum} image is ready!`);
+                        // Update processing status with current progress
+                        updateProcessingProgress(pageNum, docId);
                         return { ...prev, [pageNum]: 'ready' };
                     }
                     return prev;
@@ -176,6 +189,22 @@ function App() {
         } catch (error) {
             console.error(`Error checking page ${pageNum} pixmap:`, error);
             setPixmapStatus(prev => ({ ...prev, [pageNum]: 'error' }));
+        }
+    };
+
+    const updateProcessingProgress = (completedPageNum, docId) => {
+        if (!docInfo) return;
+        
+        // Count how many pages are ready
+        const allPageNums = Array.from({ length: docInfo.totalPages }, (_, i) => i + 1);
+        const readyCount = allPageNums.filter(pageNum => 
+            pixmapStatus[pageNum] === 'ready' || pageNum === completedPageNum
+        ).length;
+        
+        if (readyCount === docInfo.totalPages) {
+            setProcessingStatus('✅ All page images ready! Setting up interface...');
+        } else {
+            setProcessingStatus(`🖼️ Page images ready: ${readyCount}/${docInfo.totalPages}`);
         }
     };
 
@@ -213,6 +242,7 @@ function App() {
             setPixmapStatus({});
             setPixmapNotifications([]);
             setHtmlPipelineTriggered(false); // Reset for new document
+            setProcessingStatus(''); // Reset processing status
             setProjectData({
                 keyAreas: {},
                 summaries: {},
@@ -234,6 +264,7 @@ function App() {
 
         setIsProcessing(true);
         setError('');
+        setProcessingStatus('📄 Uploading PDF and processing page images...');
 
         const formData = new FormData();
         formData.append('file', file);
@@ -246,6 +277,7 @@ function App() {
             });
 
             setDocInfo(response.data);
+            setProcessingStatus('🔍 Checking for page images...');
             
             // Load existing data if available
             await loadExistingData(response.data.docId);
@@ -258,6 +290,7 @@ function App() {
             setError(errorMessage);
         } finally {
             setIsProcessing(false);
+            setProcessingStatus('');
         }
     };
 
@@ -370,6 +403,40 @@ function App() {
         return <TabComponent {...commonProps} />;
     };
 
+    const renderProcessingPlaceholder = () => {
+        return (
+            <div className="processing-placeholder">
+                <div className="placeholder-content">
+                    <h3>📄 Processing Document</h3>
+                    <p>Your document is being processed. Tabs will become active as content becomes available.</p>
+                    <div className="placeholder-tabs-preview">
+                        <div className="placeholder-tab">
+                            <span className="tab-icon">🎯</span>
+                            <div>
+                                <strong>Define Key Areas</strong>
+                                <p>Annotate important regions on each page</p>
+                            </div>
+                        </div>
+                        <div className="placeholder-tab">
+                            <span className="tab-icon">📄</span>
+                            <div>
+                                <strong>HTML Page Representations</strong>
+                                <p>View AI-generated HTML for each page</p>
+                            </div>
+                        </div>
+                        <div className="placeholder-tab">
+                            <span className="tab-icon">🕸️</span>
+                            <div>
+                                <strong>Knowledge Graph</strong>
+                                <p>Explore connections between content</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="app-container">
             <header className="app-header">
@@ -407,14 +474,25 @@ function App() {
                 {error && <p className="error-message">{error}</p>}
             </header>
 
-            {docInfo && !isProcessing && (
+            {/* Processing Status */}
+            {isProcessing && processingStatus && (
+                <div className="processing-status">
+                    <div className="processing-indicator">
+                        <div className="spinner-small"></div>
+                        <span>{processingStatus}</span>
+                    </div>
+                </div>
+            )}
+
+            {(docInfo || isProcessing) && (
                 <div className="main-content">
                     <nav className="tab-navigation">
                         {tabs.map(tab => (
                             <button
                                 key={tab.id}
-                                className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
-                                onClick={() => setActiveTab(tab.id)}
+                                className={`tab-button ${activeTab === tab.id ? 'active' : ''} ${isProcessing ? 'disabled' : ''}`}
+                                onClick={() => !isProcessing && setActiveTab(tab.id)}
+                                disabled={isProcessing}
                             >
                                 {tab.label}
                             </button>
@@ -422,12 +500,10 @@ function App() {
                     </nav>
 
                     <div className="tab-content">
-                        {renderActiveTab()}
+                        {docInfo ? renderActiveTab() : renderProcessingPlaceholder()}
                     </div>
                 </div>
             )}
-
-            {isProcessing && <div className="spinner"></div>}
 
             {/* Pixmap Notifications */}
             {pixmapNotifications.length > 0 && (
