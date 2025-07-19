@@ -42,8 +42,8 @@ const DefineKeyAreasTab = ({
                         
                         // Same dynamic sizing logic as in initializeCanvas
                         const imageAspectRatio = img.width / img.height;
-                        const maxCanvasWidth = 800;
-                        const maxCanvasHeight = 600;
+                        const maxCanvasWidth = 1200;   // Updated to match initializeCanvas
+                        const maxCanvasHeight = 900;   // Updated to match initializeCanvas
                         
                         let actualCanvasWidth, actualCanvasHeight, scale;
                         
@@ -65,7 +65,8 @@ const DefineKeyAreasTab = ({
                             ...prev,
                             [pageNumber]: {
                                 width: actualCanvasWidth,
-                                height: actualCanvasHeight
+                                height: actualCanvasHeight,
+                                scale: scale // Store scale for clipping calculations
                             }
                         }));
                         
@@ -90,7 +91,7 @@ const DefineKeyAreasTab = ({
 
     useEffect(() => {
         let attempts = 0;
-        const maxAttempts = 5;
+        const maxAttempts = 10; // Increased from 5
         
         const initializeAllCanvases = () => {
             attempts++;
@@ -109,12 +110,12 @@ const DefineKeyAreasTab = ({
             
             // Retry if not all canvases were initialized and we haven't exceeded max attempts
             if (successCount < docInfo.totalPages && attempts < maxAttempts) {
-                setTimeout(initializeAllCanvases, 500);
+                setTimeout(initializeAllCanvases, 200); // Reduced delay for faster retry
             }
         };
         
-        // Start initialization after a delay
-        const timer = setTimeout(initializeAllCanvases, 300);
+        // Start initialization after a shorter delay
+        const timer = setTimeout(initializeAllCanvases, 100); // Reduced from 300ms
 
         return () => {
             clearTimeout(timer);
@@ -141,12 +142,12 @@ const DefineKeyAreasTab = ({
 
         console.log(`Initializing canvas for page ${pageNumber}`);
 
-        // Start with a temporary canvas size - we'll resize after loading the image
+        // Use much larger canvas dimensions for better visibility
         const canvas = new fabric.Canvas(canvasElement, {
             selection: true,
             preserveObjectStacking: true,
-            width: 800,  // Temporary initial size
-            height: 600  // Will be adjusted based on actual image dimensions
+            width: 1200,  // Increased from 800
+            height: 900   // Increased from 600
         });
 
         // Store canvas in state immediately
@@ -156,10 +157,13 @@ const DefineKeyAreasTab = ({
             return newCanvases;
         });
 
+        // Setup basic canvas interactions IMMEDIATELY after creation
+        setupCanvasInteractions(canvas, pageNumber);
+
         // Check if pixmap is ready before loading background image
         const pageStatus = pixmapStatus[pageNumber];
         if (pageStatus !== 'ready') {
-            console.log(`Page ${pageNumber} pixmap not ready yet (status: ${pageStatus}), skipping background load`);
+            console.log(`Page ${pageNumber} pixmap not ready yet (status: ${pageStatus}), canvas ready for annotations`);
             return;
         }
 
@@ -171,8 +175,8 @@ const DefineKeyAreasTab = ({
             
             // DYNAMIC CANVAS SIZING: Calculate optimal canvas size based on image aspect ratio
             const imageAspectRatio = img.width / img.height;
-            const maxCanvasWidth = 800;   // Maximum width for UI layout
-            const maxCanvasHeight = 600;  // Maximum height for UI layout
+            const maxCanvasWidth = 1200;   // Increased maximum width
+            const maxCanvasHeight = 900;   // Increased maximum height
             
             let actualCanvasWidth, actualCanvasHeight, scale;
             
@@ -201,7 +205,8 @@ const DefineKeyAreasTab = ({
                 ...prev,
                 [pageNumber]: {
                     width: actualCanvasWidth,
-                    height: actualCanvasHeight
+                    height: actualCanvasHeight,
+                    scale: scale // Store scale for clipping calculations
                 }
             }));
             
@@ -223,8 +228,8 @@ const DefineKeyAreasTab = ({
                 
                 // Same sizing logic for high-res pixmap
                 const imageAspectRatio = img.width / img.height;
-                const maxCanvasWidth = 800;
-                const maxCanvasHeight = 600;
+                const maxCanvasWidth = 1200;   // Increased
+                const maxCanvasHeight = 900;   // Increased
                 
                 let actualCanvasWidth, actualCanvasHeight, scale;
                 
@@ -246,7 +251,8 @@ const DefineKeyAreasTab = ({
                     ...prev,
                     [pageNumber]: {
                         width: actualCanvasWidth,
-                        height: actualCanvasHeight
+                        height: actualCanvasHeight,
+                        scale: scale // Store scale for clipping calculations
                     }
                 }));
                 
@@ -258,6 +264,16 @@ const DefineKeyAreasTab = ({
                 });
             }, (pixmapError) => {
                 console.error(`Failed to load both legacy and high-res images for page ${pageNumber}:`, error, pixmapError);
+                
+                // Even without background image, store canvas dimensions for annotations to work
+                setCanvasDimensions(prev => ({
+                    ...prev,
+                    [pageNumber]: {
+                        width: 1200,
+                        height: 900,
+                        scale: 1
+                    }
+                }));
             });
         });
 
@@ -286,9 +302,6 @@ const DefineKeyAreasTab = ({
                 canvas.add(rect);
             }
         });
-
-        // Setup basic canvas interactions
-        setupCanvasInteractions(canvas, pageNumber);
         
         console.log(`Canvas ${pageNumber} initialized and interactions set up`);
     };
@@ -440,19 +453,51 @@ const DefineKeyAreasTab = ({
 
     const startDrawing = (toolId, pageNumber) => {
         console.log(`Starting drawing mode: ${toolId} on page ${pageNumber}`);
+        
+        // Ensure canvas exists before starting drawing
+        const canvas = fabricCanvases[pageNumber];
+        if (!canvas) {
+            console.log(`Canvas not ready for page ${pageNumber}, attempting to initialize`);
+            
+            // Try to initialize the canvas if it doesn't exist
+            const canvasElement = document.getElementById(`canvas-${pageNumber}`);
+            if (canvasElement) {
+                initializeCanvas(pageNumber);
+                
+                // Wait a bit for initialization then try again
+                setTimeout(() => {
+                    const retryCanvas = fabricCanvases[pageNumber];
+                    if (retryCanvas) {
+                        console.log(`Canvas initialized successfully for page ${pageNumber}, starting drawing`);
+                        setSelectedTool(toolId);
+                        setIsDrawing(true);
+                        setDrawingPage(pageNumber);
+                        
+                        retryCanvas.discardActiveObject();
+                        retryCanvas.renderAll();
+                    } else {
+                        console.error(`Failed to initialize canvas for page ${pageNumber}`);
+                        alert(`Canvas not ready for page ${pageNumber}. Please try again in a moment.`);
+                    }
+                }, 300);
+                
+                return;
+            } else {
+                console.error(`Canvas element not found for page ${pageNumber}`);
+                alert(`Canvas element not found for page ${pageNumber}. Please refresh the page.`);
+                return;
+            }
+        }
+        
+        // Canvas exists, proceed with drawing
         setSelectedTool(toolId);
         setIsDrawing(true);
         setDrawingPage(pageNumber);
         
         // Focus on the specific page canvas
-        const canvas = fabricCanvases[pageNumber];
-        if (canvas) {
-            canvas.discardActiveObject();
-            canvas.renderAll();
-            console.log(`Canvas found and focused for page ${pageNumber}`);
-        } else {
-            console.log(`No canvas found for page ${pageNumber}`);
-        }
+        canvas.discardActiveObject();
+        canvas.renderAll();
+        console.log(`Canvas found and focused for page ${pageNumber}, drawing mode enabled`);
     };
 
     const deleteAnnotation = (pageNumber, annotationId) => {
@@ -538,7 +583,7 @@ const DefineKeyAreasTab = ({
                 const pageDims = canvasDimensions[annotation.pageNumber];
                 console.log(`🔍 FRONTEND DEBUG - Annotation ${index + 1} (${annotation.tag} on page ${annotation.pageNumber}):`);
                 console.log(`  📍 Coords: (${annotation.left}, ${annotation.top}) ${annotation.width}x${annotation.height}`);
-                console.log(`  📐 Canvas dims: ${pageDims?.width}x${pageDims?.height}`);
+                console.log(`  📐 Canvas dims: ${pageDims?.width}x${pageDims?.height} (scale: ${pageDims?.scale})`);
                 
                 // Get the actual canvas element and check its properties
                 const canvasElement = document.getElementById(`canvas-${annotation.pageNumber}`);

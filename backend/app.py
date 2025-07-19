@@ -717,10 +717,10 @@ def canvas_to_pdf_coordinates(canvas_coords, canvas_width, canvas_height, page_m
     print(f"         METADATA - DPI: {dpi}")
     
     # NEW: Dynamic scaling calculation matching frontend logic
-    # The frontend now uses dynamic canvas sizing based on aspect ratio
+    # The frontend now uses dynamic canvas sizing based on aspect ratio with LARGER max dimensions
     image_aspect_ratio = image_width / image_height
-    max_canvas_width = 800
-    max_canvas_height = 600
+    max_canvas_width = 1200  # Updated to match new frontend dimensions
+    max_canvas_height = 900  # Updated to match new frontend dimensions
     
     if image_aspect_ratio > (max_canvas_width / max_canvas_height):
         # Image is wider (landscape) - fit to width
