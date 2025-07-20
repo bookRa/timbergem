@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
 import DefineKeyAreasTab from './components/DefineKeyAreasTab';
+import SymbolAnnotationTab from './components/SymbolAnnotationTab';
 import KnowledgeGraphTab from './components/KnowledgeGraphTab';
 import ScopeGroupsTab from './components/ScopeGroupsTab';
 import ScopeAnnotationsTab from './components/ScopeAnnotationsTab';
@@ -31,6 +32,7 @@ function App() {
     const [projectData, setProjectData] = useState({
         keyAreas: {},
         summaries: {},
+        symbols: {}, // page_number -> { symbol_id -> { name, description, coordinates } }
         knowledgeGraph: null,
         scopeGroups: [],
         scopeAnnotations: {}
@@ -40,6 +42,7 @@ function App() {
 
     const tabs = [
         { id: 'define-key-areas', label: 'Define Key Areas', component: DefineKeyAreasTab },
+        { id: 'symbol-annotation', label: 'Symbol Annotation', component: SymbolAnnotationTab },
         { id: 'html-representations', label: 'HTML Page Representations', component: PDFToHTMLTab },
         { id: 'knowledge-graph', label: 'Knowledge Graph', component: KnowledgeGraphTab },
         { id: 'scope-groups', label: 'Scope Groups', component: ScopeGroupsTab },
@@ -246,6 +249,7 @@ function App() {
             setProjectData({
                 keyAreas: {},
                 summaries: {},
+                symbols: {},
                 knowledgeGraph: null,
                 scopeGroups: [],
                 scopeAnnotations: {}
@@ -400,6 +404,14 @@ function App() {
             />;
         }
 
+        // Symbol Annotation tab needs special handling for Symbol Legend clippings
+        if (activeTabConfig.id === 'symbol-annotation') {
+            return <TabComponent 
+                {...commonProps}
+                pixmapStatus={pixmapStatus}
+            />;
+        }
+
         return <TabComponent {...commonProps} />;
     };
 
@@ -415,6 +427,13 @@ function App() {
                             <div>
                                 <strong>Define Key Areas</strong>
                                 <p>Annotate important regions on each page</p>
+                            </div>
+                        </div>
+                        <div className="placeholder-tab">
+                            <span className="tab-icon">🔣</span>
+                            <div>
+                                <strong>Symbol Annotation</strong>
+                                <p>Identify and annotate individual symbols</p>
                             </div>
                         </div>
                         <div className="placeholder-tab">

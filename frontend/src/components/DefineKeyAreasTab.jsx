@@ -86,7 +86,7 @@ const DefineKeyAreasTab = ({
         { id: 'TitleBlock', label: 'Title Block', color: '#FF6B6B', icon: '📋' },
         { id: 'DrawingArea', label: 'Drawing Area', color: '#4ECDC4', icon: '📐' },
         { id: 'NotesArea', label: 'Notes Area', color: '#45B7D1', icon: '📝' },
-        { id: 'Legend', label: 'Legend', color: '#96CEB4', icon: '🗺️' }
+        { id: 'SymbolLegend', label: 'Symbol Legend', color: '#96CEB4', icon: '🔣' }
     ];
 
     useEffect(() => {
@@ -707,7 +707,7 @@ const DefineKeyAreasTab = ({
 
             <div className="generate-section">
                 <button onClick={generateHighResClippings} className="generate-button">
-                    Generate Knowledge Graph
+                    Move onto Symbol Identification
                 </button>
             </div>
         </div>
@@ -837,13 +837,13 @@ const DefineKeyAreasTab = ({
                             {selectedTool === 'NotesArea' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
                         </button>
                     </div>
-                    <div className="legend">
-                        <h4>🗺️ Legend:</h4>
+                    <div className="symbol-legend">
+                        <h4>🔣 Symbol Legend:</h4>
                         <button 
-                            className={`add-button ${selectedTool === 'Legend' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
-                            onClick={() => startDrawing('Legend', pageNumber)}
+                            className={`add-button ${selectedTool === 'SymbolLegend' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
+                            onClick={() => startDrawing('SymbolLegend', pageNumber)}
                         >
-                            {selectedTool === 'Legend' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
+                            {selectedTool === 'SymbolLegend' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
                         </button>
                     </div>
                 </div>
