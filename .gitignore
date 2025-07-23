@@ -4,3 +4,6 @@ data/
 Construction_Doc.pdf
 .env
 venv/
+symbol_identification/*.png
+symbol_identification/*.json
+symbol_identification/*.csv
