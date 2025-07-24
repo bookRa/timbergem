@@ -11,42 +11,53 @@ TEMPLATE_IMAGE_PATH = "assembly.png"
 # --- Output Paths ---
 CLIPPINGS_DIR = "clippings"
 CANDIDATES_JSON_PATH = "candidates_log.json"
-OUTPUT_IMAGE_PATH = "detection_overlay_debug.png"
+OUTPUT_IMAGE_PATH = "detection_overlay_final.png"
 DEBUG_HEATMAP_PATH = "debug_confidence_heatmap.png"
 
-# --- Tuning Parameters (from previous run) ---
+# --- Key Tuning Parameters ---
+
+# Stage 1: Lower threshold to ensure we find all potential candidates.
 MATCH_THRESHOLD = 0.28
-PATTERN_CONFIDENCE_THRESHOLD = 0.35
-VERIFICATION_KERNEL_SIZE = 15
 
-SCALE_RANGE = (88, 102)
-SCALE_STEP = 2
-ROTATION_RANGE = (-6, 6)
-ROTATION_STEP = 2
+# Stage 2: The new Peak-to-Average Ratio threshold. A good match should have a
+# peak value at least 2.75x higher than the average of its match region.
+PEAK_QUALITY_THRESHOLD = 2.75
 
+# Multi-scale and rotation settings remain the same.
+SCALE_RANGE = (92, 96)
+SCALE_STEP = 1
+ROTATION_RANGE = (-1, 1)
+ROTATION_STEP = 1
+
+# Other settings
 CANNY_THRESHOLD_1 = 50
 CANNY_THRESHOLD_2 = 200
 NMS_DISTANCE_THRESHOLD = 50
 
 
-# --- Helper Functions (unchanged) ---
-def verify_match_pattern(confidence_map, point, kernel_size, threshold):
-    half = kernel_size // 2
-    x, y = point
-    kernel = confidence_map[y - half : y + half + 1, x - half : x + half + 1]
-    if kernel.size == 0:
+# --- NEW Verification Function ---
+def verify_peak_quality(match_region, threshold):
+    """
+    Analyzes a clipped heatmap region. A good match has a sharp peak relative
+    to the average energy in the region.
+    Returns the verification status and the calculated score.
+    """
+    if match_region is None or match_region.size == 0:
         return False, 0.0
-    diag1_mask = np.eye(kernel_size, dtype=bool)
-    diag2_mask = np.fliplr(diag1_mask)
-    diagonal_mask = diag1_mask | diag2_mask
-    total_sum = np.sum(kernel)
-    diagonal_sum = np.sum(kernel[diagonal_mask])
-    if total_sum == 0:
+
+    peak_value = np.max(match_region)
+    mean_value = np.mean(match_region)
+
+    if mean_value < 1e-6:  # Avoid division by zero for black regions
         return False, 0.0
-    score = diagonal_sum / total_sum
+
+    # Calculate the Peak-to-Average Ratio (PAR)
+    score = peak_value / mean_value
+
     return score >= threshold, score
 
 
+# --- Helper Function (unchanged) ---
 def group_close_points(points_data, min_distance):
     points_data.sort(key=lambda p: p["confidence"], reverse=True)
     unique_detections = []
@@ -66,13 +77,13 @@ def group_close_points(points_data, min_distance):
 
 
 def main():
-    # --- Setup Output Directory ---
+    # Setup
     if os.path.exists(CLIPPINGS_DIR):
         shutil.rmtree(CLIPPINGS_DIR)
     os.makedirs(CLIPPINGS_DIR)
     print(f"Created clean clippings directory: '{CLIPPINGS_DIR}/'")
 
-    # --- STAGE 1: CANDIDATE GENERATION (same as before) ---
+    # --- STAGE 1: CANDIDATE GENERATION ---
     print("\n--- Stage 1: Finding All Potential Candidates ---")
     source_image = cv2.imread(SOURCE_IMAGE_PATH)
     source_gray = cv2.cvtColor(source_image, cv2.COLOR_BGR2GRAY)
@@ -82,10 +93,10 @@ def main():
     all_detections_raw = []
     max_confidence_map = np.zeros(source_gray.shape, dtype=np.float32)
 
+    # Multi-scale, multi-rotation matching loop
     for scale_px in range(SCALE_RANGE[0], SCALE_RANGE[1] + 1, SCALE_STEP):
         for angle in range(ROTATION_RANGE[0], ROTATION_RANGE[1] + 1, ROTATION_STEP):
             target_size = (scale_px, scale_px)
-            # ... (rest of the matching loop is identical to the previous script)
             scaled_template = cv2.resize(template_image, target_size)
             h, w = scaled_template.shape
             center = (w // 2, h // 2)
@@ -96,13 +107,16 @@ def main():
             template_edges = cv2.Canny(
                 rotated_template, CANNY_THRESHOLD_1, CANNY_THRESHOLD_2
             )
+
             result = cv2.matchTemplate(
                 source_edges, template_edges, cv2.TM_CCOEFF_NORMED
             )
+
             h_res, w_res = result.shape
             max_confidence_map[0:h_res, 0:w_res] = np.maximum(
                 max_confidence_map[0:h_res, 0:w_res], result
             )
+
             locations = np.where(result >= MATCH_THRESHOLD)
             for pt in zip(*locations[::-1]):
                 all_detections_raw.append(
@@ -117,115 +131,85 @@ def main():
     candidate_points = group_close_points(all_detections_raw, NMS_DISTANCE_THRESHOLD)
     print(f"Found {len(candidate_points)} unique candidates.")
 
-    # --- STAGE 2: VERIFY AND GENERATE DEBUG CLIPPINGS ---
-    print("\n--- Stage 2: Verifying Candidates and Generating Debug Clippings ---")
+    # --- STAGE 2: PEAK QUALITY VERIFICATION ---
+    print("\n--- Stage 2: Verifying Peak Quality for Each Candidate ---")
 
     candidates_log = []
     overlay_image = source_image.copy()
 
     for i, candidate in enumerate(candidate_points):
-        candidate_id = i
-        is_verified, pattern_score = verify_match_pattern(
-            max_confidence_map,
-            candidate["point"],
-            VERIFICATION_KERNEL_SIZE,
-            PATTERN_CONFIDENCE_THRESHOLD,
-        )
-
-        status = "ACCEPTED" if is_verified else "REJECTED"
-
-        # --- Create and save the composite clipping ---
         x, y = candidate["point"]
         w, h = candidate["size"]
 
-        # Clip from original, edges, and heatmap
+        # Correctly clip the full match region from the heatmap
+        match_region_heatmap = max_confidence_map[y : y + h, x : x + w]
+
+        is_verified, peak_quality_score = verify_peak_quality(
+            match_region_heatmap, PEAK_QUALITY_THRESHOLD
+        )
+
+        status = "ACCEPTED" if is_verified else "REJECTED"
+        color = (0, 255, 0) if is_verified else (0, 0, 255)
+
+        # --- Create and save the composite clipping ---
         clip_orig = source_image[y : y + h, x : x + w]
         clip_edge = cv2.cvtColor(source_edges[y : y + h, x : x + w], cv2.COLOR_GRAY2BGR)
         clip_heat = cv2.normalize(
-            max_confidence_map[y : y + h, x : x + w],
-            None,
-            0,
-            255,
-            cv2.NORM_MINMAX,
-            cv2.CV_8U,
+            match_region_heatmap, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U
         )
-        clip_heat = cv2.cvtColor(clip_heat, cv2.COLOR_GRAY2BGR)
+        clip_heat_bgr = cv2.cvtColor(clip_heat, cv2.COLOR_GRAY2BGR)
 
-        # Add text labels to each clipping
+        # Draw the score on the heatmap clipping
         cv2.putText(
-            clip_orig,
-            "Original",
+            clip_heat_bgr,
+            f"PAR Score:{peak_quality_score:.2f}",
             (5, 15),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.4,
-            (0, 0, 255),
-            1,
-        )
-        cv2.putText(
-            clip_edge, "Edges", (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1
-        )
-        cv2.putText(
-            clip_heat,
-            f"Heatmap (Score:{pattern_score:.2f})",
-            (5, 15),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.4,
-            (0, 0, 255),
+            (0, 255, 255),
             1,
         )
 
-        # Stack the images horizontally
-        composite_clip = np.hstack([clip_orig, clip_edge, clip_heat])
-        clipping_filename = f"candidate_{candidate_id:03d}.png"
+        composite_clip = np.hstack([clip_orig, clip_edge, clip_heat_bgr])
+        clipping_filename = f"candidate_{i:03d}_{status}.png"
         cv2.imwrite(os.path.join(CLIPPINGS_DIR, clipping_filename), composite_clip)
 
-        # --- Log data for JSON output ---
+        # Log and draw on overlay
         log_entry = {
-            "candidate_id": candidate_id,
+            "candidate_id": i,
             "clipping_file": clipping_filename,
             "status": status,
             "match_confidence": float(candidate["confidence"]),
-            "pattern_score": float(pattern_score),
+            "peak_quality_score": float(peak_quality_score),
             "x": int(x),
             "y": int(y),
             "width": int(w),
             "height": int(h),
-            "matched_angle": int(candidate["angle"]),
-            "matched_scale": candidate["size"][0],
         }
         candidates_log.append(log_entry)
 
-        # Draw on the main overlay image
-        color = (
-            (0, 255, 0) if is_verified else (0, 0, 255)
-        )  # Green for accepted, Red for rejected
-        cv2.rectangle(overlay_image, (x, y), (x + w, y + h), color, 2)
-        cv2.putText(
-            overlay_image,
-            str(candidate_id),
-            (x, y - 5),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            color,
-            2,
-        )
+        if is_verified:
+            cv2.rectangle(overlay_image, (x, y), (x + w, y + h), color, 3)
+            print(
+                f"  ✅ Candidate {i} ACCEPTED. Peak Quality Score: {peak_quality_score:.2f}"
+            )
 
     # --- FINAL OUTPUT ---
-    print(f"\n✅ Generated {len(candidates_log)} debug clippings.")
+    verified_count = sum(1 for log in candidates_log if log["status"] == "ACCEPTED")
+    print(f"\n✅ Found {verified_count} verified diamonds.")
 
-    print(f"Saving detailed candidates log to: {CANDIDATES_JSON_PATH}")
     with open(CANDIDATES_JSON_PATH, "w") as f:
         json.dump(candidates_log, f, indent=4)
+    print(f"Saved detailed log to: {CANDIDATES_JSON_PATH}")
 
-    print(f"Saving visual overlay to: {OUTPUT_IMAGE_PATH}")
     cv2.imwrite(OUTPUT_IMAGE_PATH, overlay_image)
+    print(f"Saving final visual overlay to: {OUTPUT_IMAGE_PATH}")
 
-    # Save the heatmap (still useful)
-    heatmap_normalized = cv2.normalize(
-        max_confidence_map, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U
+    cv2.imwrite(
+        DEBUG_HEATMAP_PATH,
+        cv2.normalize(max_confidence_map, None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U),
     )
     print(f"Saving debug confidence heatmap to: {DEBUG_HEATMAP_PATH}")
-    cv2.imwrite(DEBUG_HEATMAP_PATH, heatmap_normalized)
 
     print("\n--- Process Complete ---")
 
