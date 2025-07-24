@@ -7,3 +7,5 @@ venv/
 symbol_identification/*.png
 symbol_identification/*.json
 symbol_identification/*.csv
+**.png
+.DS_Store
