@@ -1,3 +1,4 @@
+# TODO: Improve this algorithm by utilizing a text recognition andremoval feature so that text-containing symbols are only considered if they have text, and the symbol is matched irrespective of the text content.
 import cv2
 import numpy as np
 import json
