@@ -5,8 +5,9 @@ import os
 import shutil
 
 # --- Configuration ---
-SOURCE_IMAGE_PATH = "page_4.png"
-TEMPLATE_IMAGE_PATH = "assembly.png"
+SOURCE_IMAGE_PATH = "page_3.png"
+TEMPLATE_IMAGE_PATH = "door.png"
+# assembly.png is square between 93-96 pix; door.png is 84x43 shape
 
 # --- Output Paths ---
 CLIPPINGS_DIR = "clippings_final"
@@ -31,7 +32,7 @@ ROTATION_STEP = 1
 # Other settings
 CANNY_THRESHOLD_1 = 50
 CANNY_THRESHOLD_2 = 200
-NMS_DISTANCE_THRESHOLD = 50
+NMS_DISTANCE_THRESHOLD = 100
 
 
 # --- NEW IoU Verification Function ---
@@ -191,9 +192,13 @@ def main():
         if is_verified:
             color = (0, 255, 0)
             cv2.rectangle(overlay_image, (x, y), (x + w, y + h), color, 3)
-            print(f"  ✅ Candidate {i} ACCEPTED. IoU Score: {iou_score:.2f}")
+            print(
+                f"  ✅ Candidate {i} ACCEPTED. Match Score: {candidate['confidence']:.2f} IoU Score: {iou_score:.2f}"
+            )
         else:
-            print(f"  ❌ Candidate {i} REJECTED. IoU Score: {iou_score:.2f}")
+            print(
+                f"  ❌ Candidate {i} REJECTED. Match Score: {candidate['confidence']:.2f} IoU Score: {iou_score:.2f}"
+            )
 
     # --- FINAL OUTPUT ---
     verified_count = sum(1 for log in candidates_log if log["status"] == "ACCEPTED")
