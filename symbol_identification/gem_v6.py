@@ -11,12 +11,20 @@ OUTPUT_JSON_PATH = "detected_diamonds_final.json"
 OUTPUT_IMAGE_PATH = "detection_overlay_final.png"
 CLIPPINGS_DIR = "clippings_final"
 
-# --- Key Tuning Parameters ---
-MATCH_THRESHOLD = 0.28
-IOU_THRESHOLD = 0.20  # Using the data-driven threshold from our successful run
-MIN_CONTOUR_AREA_TO_KEEP = 100
+# --- 💡 Key Tuning Parameters 💡 ---
 
-# Using your tightened search parameters
+# Stage 1: Candidate Generation Threshold.
+MATCH_THRESHOLD = 0.28
+
+# Stage 2: IoU Verification Threshold. Start with a moderate value and tune based on clipping scores.
+IOU_THRESHOLD = 0.20
+
+# --- New Cleaning Function Parameter ---
+# The number of largest contours to keep when cleaning the source edge clipping.
+# 4 is a good starting point, representing the four sides of the diamond.
+NUM_CONTOURS_TO_KEEP = 20
+
+# Search variability.
 SCALE_RANGE = (92, 96)
 SCALE_STEP = 1
 ROTATION_RANGE = (-1, 1)
@@ -25,18 +33,34 @@ ROTATION_STEP = 1
 # Other settings
 CANNY_THRESHOLD_1 = 50
 CANNY_THRESHOLD_2 = 200
-NMS_DISTANCE_THRESHOLD = 50
+NMS_DISTANCE_THRESHOLD = 120
 
 
-# --- Functions ---
-def clean_edges_with_contours(edge_clip, min_area):
+# --- ⭐️ NEW, SIMPLIFIED CLEANING FUNCTION ⭐️ ---
+def clean_edges_by_keeping_largest_contours(edge_clip, num_to_keep):
+    """
+    Cleans an edge map by finding all contours, sorting them by area,
+    and keeping only the top N largest ones.
+    """
     contours, _ = cv2.findContours(edge_clip, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-    large_contours = [c for c in contours if cv2.contourArea(c) > min_area]
+
+    if not contours:
+        return np.zeros_like(edge_clip)
+
+    # Sort contours by area in descending order
+    sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+    # Keep only the top 'num_to_keep' contours
+    largest_contours = sorted_contours[:num_to_keep]
+
+    # Create a new black canvas and draw the kept contours
     clean_clip = np.zeros_like(edge_clip)
-    cv2.drawContours(clean_clip, large_contours, -1, 255, 2)
+    cv2.drawContours(clean_clip, largest_contours, -1, 255, 2)
+
     return clean_clip
 
 
+# --- IoU and Grouping Functions (Unchanged) ---
 def verify_shape_iou(source_edge_clip, template_edges, threshold):
     source_bool = source_edge_clip > 0
     template_bool = template_edges > 0
@@ -48,20 +72,11 @@ def verify_shape_iou(source_edge_clip, template_edges, threshold):
     return iou_score >= threshold, iou_score
 
 
-# --- ⭐️ CORRECTED Helper Function ⭐️ ---
 def group_close_points(points_data, min_distance):
-    """
-    Correctly groups close points, keeping the one with the highest confidence.
-    """
-    if not points_data:
-        return []
-
     points_data.sort(key=lambda p: p["confidence"], reverse=True)
-
     unique_detections = []
     for data in points_data:
         is_close = False
-        # Check against points already added to the unique list
         for unique_data in unique_detections:
             dist = np.sqrt(
                 (data["point"][0] - unique_data["point"][0]) ** 2
@@ -69,12 +84,9 @@ def group_close_points(points_data, min_distance):
             )
             if dist < min_distance:
                 is_close = True
-                break  # It's close to an existing point, so we discard it and move to the next point
-
-        # This check now happens *after* the inner loop has finished.
+                break
         if not is_close:
             unique_detections.append(data)
-
     return unique_detections
 
 
@@ -84,14 +96,13 @@ def main():
         shutil.rmtree(CLIPPINGS_DIR)
     os.makedirs(CLIPPINGS_DIR)
 
-    # --- STAGE 1 ---
+    # --- STAGE 1 (Unchanged) ---
     print("\n--- Stage 1: Finding All Potential Candidates ---")
     source_image = cv2.imread(SOURCE_IMAGE_PATH)
     source_gray = cv2.cvtColor(source_image, cv2.COLOR_BGR2GRAY)
     source_edges = cv2.Canny(source_gray, CANNY_THRESHOLD_1, CANNY_THRESHOLD_2)
     template_image = cv2.imread(TEMPLATE_IMAGE_PATH, cv2.IMREAD_GRAYSCALE)
-    all_detections_raw = []
-    template_variations = {}
+    all_detections_raw, template_variations = [], {}
 
     for scale_px in range(SCALE_RANGE[0], SCALE_RANGE[1] + 1, SCALE_STEP):
         for angle in range(ROTATION_RANGE[0], ROTATION_RANGE[1] + 1, ROTATION_STEP):
@@ -124,7 +135,7 @@ def main():
     candidate_points = group_close_points(all_detections_raw, NMS_DISTANCE_THRESHOLD)
     print(f"Found {len(candidate_points)} unique candidates.")
 
-    # --- STAGE 2 ---
+    # --- STAGE 2: CLEANING AND IoU VERIFICATION ---
     print(
         f"\n--- Stage 2: Verifying Candidates with IoU Threshold > {IOU_THRESHOLD} ---"
     )
@@ -140,8 +151,8 @@ def main():
         )
 
         source_edge_clip_noisy = source_edges[y : y + h, x : x + w]
-        source_edge_clip_clean = clean_edges_with_contours(
-            source_edge_clip_noisy, MIN_CONTOUR_AREA_TO_KEEP
+        source_edge_clip_clean = clean_edges_by_keeping_largest_contours(
+            source_edge_clip_noisy, NUM_CONTOURS_TO_KEEP
         )
         matching_template_edges = template_variations[(w, angle)]
 
@@ -157,15 +168,38 @@ def main():
         clean_source_edges_bgr = cv2.cvtColor(
             source_edge_clip_clean, cv2.COLOR_GRAY2BGR
         )
+
+        # 🔽🔽🔽 --- MODIFICATION START --- 🔽🔽🔽
+        # Get the match confidence score (which is used for NMS)
+        match_confidence = candidate["confidence"]
+
+        # Define text properties
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.3
+        color = (255, 0, 255)  # Magenta
+        thickness = 1
+
+        # Add the scores to the SECOND panel (template_edges_bgr)
         cv2.putText(
-            clean_source_edges_bgr,
-            f"IoU:{iou_score:.2f}",
+            template_edges_bgr,
+            f"Match (NMS): {match_confidence:.2f}",
             (5, 15),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.4,
-            (0, 255, 255),
-            1,
+            font,
+            font_scale,
+            color,
+            thickness,
         )
+        cv2.putText(
+            template_edges_bgr,
+            f"IoU Score: {iou_score:.2f}",
+            (5, 30),
+            font,
+            font_scale,
+            color,
+            thickness,
+        )
+        # 🔼🔼🔼 --- MODIFICATION END --- 🔼🔼🔼
+
         composite_clip = np.hstack(
             [clip_orig_bgr, template_edges_bgr, clean_source_edges_bgr]
         )
