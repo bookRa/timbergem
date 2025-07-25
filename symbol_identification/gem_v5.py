@@ -5,9 +5,28 @@ import os
 import shutil
 
 # --- Configuration ---
-SOURCE_IMAGE_PATH = "page_3.png"
-TEMPLATE_IMAGE_PATH = "door.png"
-# assembly.png is square between 93-96 pix; door.png is 84x43 shape
+SOURCE_IMAGE_PATH = "page_4.png"
+TEMPLATE_IMAGE_PATH = "window.png"
+# TEMPLATE_IMAGE_PATH = "door.png"
+# TEMPLATE_IMAGE_PATH = "assembly.png"
+
+# --- Template Size Configurations ---
+# Target sizes for different templates (width, height)
+DOOR_TEMPLATE_SIZE = (84, 43)  # door.png target size
+ASSEMBLY_TEMPLATE_SIZE = (94, 94)  # assembly.png target size (square)
+WINDOW_TEMPLATE_SIZE = (66, 77)  # window.png target size
+
+# Map template files to their target sizes
+TEMPLATE_SIZES = {
+    "door.png": DOOR_TEMPLATE_SIZE,
+    "assembly.png": ASSEMBLY_TEMPLATE_SIZE,
+    "window.png": WINDOW_TEMPLATE_SIZE,
+}
+
+# Get current template's target size
+CURRENT_TEMPLATE_SIZE = TEMPLATE_SIZES.get(
+    os.path.basename(TEMPLATE_IMAGE_PATH), DOOR_TEMPLATE_SIZE  # fallback
+)
 
 # --- Output Paths ---
 CLIPPINGS_DIR = "clippings_final"
@@ -17,15 +36,14 @@ OUTPUT_IMAGE_PATH = "detection_overlay_final.png"
 # --- 💡 FINAL Tuning Parameters 💡 ---
 
 # Stage 1: Candidate Generation Threshold.
-MATCH_THRESHOLD = 0.28
+MATCH_THRESHOLD = 0.28 if TEMPLATE_IMAGE_PATH.endswith("assembly.png") else 0.30
 
 # Stage 2: Intersection over Union (IoU) Verification Threshold.
 # A value between 0 and 1. A good outline overlap should be > 0.35.
-IOU_THRESHOLD = 0.2
+IOU_THRESHOLD = 0.2 if TEMPLATE_IMAGE_PATH.endswith("assembly.png") else 0.32
 
-# Search variability (tightened based on your findings).
-SCALE_RANGE = (92, 96)
-SCALE_STEP = 1
+# Search variability (±pixels for both width and height)
+SCALE_VARIANCE_PX = 2  # ±2 pixels in both dimensions
 ROTATION_RANGE = (-1, 1)
 ROTATION_STEP = 1
 
@@ -78,12 +96,30 @@ def group_close_points(points_data, min_distance):
     return unique_detections
 
 
+def generate_scale_variations(target_width, target_height, variance_px):
+    """
+    Generate all scale variations within the variance range.
+    Returns list of (width, height) tuples.
+    """
+    variations = []
+    for v in range(-variance_px, variance_px + 1):
+        new_width = target_width + v
+        new_height = target_height + v
+        # Ensure positive dimensions
+        if new_width > 0 and new_height > 0:
+            variations.append((new_width, new_height))
+    return variations
+
+
 def main():
     # Setup
     if os.path.exists(CLIPPINGS_DIR):
         shutil.rmtree(CLIPPINGS_DIR)
     os.makedirs(CLIPPINGS_DIR)
     print(f"Created clean clippings directory: '{CLIPPINGS_DIR}/'")
+
+    target_width, target_height = CURRENT_TEMPLATE_SIZE
+    print(f"Using target template size: {target_width}x{target_height} pixels")
 
     # --- STAGE 1: CANDIDATE GENERATION ---
     print("\n--- Stage 1: Finding All Potential Candidates ---")
@@ -95,9 +131,14 @@ def main():
     all_detections_raw = []
     template_variations = {}
 
-    for scale_px in range(SCALE_RANGE[0], SCALE_RANGE[1] + 1, SCALE_STEP):
+    # Generate scale variations
+    scale_variations = generate_scale_variations(
+        target_width, target_height, SCALE_VARIANCE_PX
+    )
+
+    for scale_width, scale_height in scale_variations:
         for angle in range(ROTATION_RANGE[0], ROTATION_RANGE[1] + 1, ROTATION_STEP):
-            target_size = (scale_px, scale_px)
+            target_size = (scale_width, scale_height)
             scaled_template = cv2.resize(template_image, target_size)
             h, w = scaled_template.shape
             center = (w // 2, h // 2)
@@ -109,8 +150,8 @@ def main():
                 rotated_template, CANNY_THRESHOLD_1, CANNY_THRESHOLD_2
             )
 
-            # Store the edge map for Stage 2
-            template_variations[(scale_px, angle)] = template_edges
+            # Store the edge map for Stage 2 using both width and height as key
+            template_variations[(scale_width, scale_height, angle)] = template_edges
 
             result = cv2.matchTemplate(
                 source_edges, template_edges, cv2.TM_CCOEFF_NORMED
@@ -143,7 +184,7 @@ def main():
         angle = candidate["angle"]
 
         # Get the template edge map that produced this match
-        matching_template_edges = template_variations[(w, angle)]
+        matching_template_edges = template_variations[(w, h, angle)]
 
         # Clip the corresponding region from the source EDGE map
         source_edge_clip = source_edges[y : y + h, x : x + w]
@@ -202,7 +243,7 @@ def main():
 
     # --- FINAL OUTPUT ---
     verified_count = sum(1 for log in candidates_log if log["status"] == "ACCEPTED")
-    print(f"\n✅ Found {verified_count} verified diamonds.")
+    print(f"\n✅ Found {verified_count} verified symbols.")
 
     with open(CANDIDATES_JSON_PATH, "w") as f:
         json.dump(candidates_log, f, indent=4)
