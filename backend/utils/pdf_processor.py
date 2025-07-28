@@ -3,6 +3,7 @@ import json
 import fitz  # PyMuPDF
 from typing import Dict, List, Tuple, Optional
 import uuid
+from .coordinate_mapping import PageMetadata, DEFAULT_DPI, HIGH_RES_DPI
 
 
 class PDFProcessor:
@@ -13,7 +14,7 @@ class PDFProcessor:
     - Metadata collection
     """
     
-    def __init__(self, dpi: int = 200, high_res_dpi: int = 300):
+    def __init__(self, dpi: int = DEFAULT_DPI, high_res_dpi: int = HIGH_RES_DPI):
         self.dpi = dpi
         self.high_res_dpi = high_res_dpi
     
@@ -108,7 +109,7 @@ class PDFProcessor:
             "page_dir": page_dir,
             "artifacts": {},
             "text_extracted": False,
-            "pdf_metadata": self._get_page_metadata(page)
+            "page_metadata": self._get_page_metadata(page, page_number).to_dict()
         }
         
         # 1. Generate high-resolution pixmap
@@ -151,16 +152,29 @@ class PDFProcessor:
     
 
     
-    def _get_page_metadata(self, page: fitz.Page) -> Dict:
-        """Get page metadata for coordinate transformation."""
+    def _get_page_metadata(self, page: fitz.Page, page_number: int) -> PageMetadata:
+        """Get page metadata for coordinate transformation using new system."""
         pdf_rect = page.rect
         
-        return {
-            "pdf_width": pdf_rect.width,
-            "pdf_height": pdf_rect.height,
-            "rotation": page.rotation,
-            "dpi": self.dpi,
-            "high_res_dpi": self.high_res_dpi
-        }
+        # Calculate image dimensions based on DPI
+        image_width_pixels = int(pdf_rect.width * self.dpi / 72.0)
+        image_height_pixels = int(pdf_rect.height * self.dpi / 72.0)
+        
+        # Calculate high-res image dimensions
+        high_res_width_pixels = int(pdf_rect.width * self.high_res_dpi / 72.0)
+        high_res_height_pixels = int(pdf_rect.height * self.high_res_dpi / 72.0)
+        
+        return PageMetadata(
+            page_number=page_number,
+            pdf_width_points=pdf_rect.width,
+            pdf_height_points=pdf_rect.height,
+            pdf_rotation_degrees=page.rotation,
+            image_width_pixels=image_width_pixels,
+            image_height_pixels=image_height_pixels,
+            image_dpi=self.dpi,
+            high_res_image_width_pixels=high_res_width_pixels,
+            high_res_image_height_pixels=high_res_height_pixels,
+            high_res_dpi=self.high_res_dpi
+        )
     
  

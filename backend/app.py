@@ -108,46 +108,57 @@ def upload_and_process_pdf():
             doc = fitz.open(temp_pdf_path)
             num_pages = len(doc)
             
-            # Legacy metadata format for coordinate mapping
+            # Create standardized page metadata using new coordinate system
+            from utils.coordinate_mapping import PageMetadata, DEFAULT_DPI, HIGH_RES_DPI
+            
             page_metadata = {}
-            dpi = 200
+            dpi = DEFAULT_DPI
 
             for page_num in range(num_pages):
                 page = doc.load_page(page_num)
+                page_number = page_num + 1
                 
                 # Get original PDF page dimensions (in points)
                 pdf_rect = page.rect
-                pdf_width = pdf_rect.width
-                pdf_height = pdf_rect.height
                 
-                # Check for page rotation
-                rotation = page.rotation
+                # Calculate image dimensions
+                image_width_pixels = int(pdf_rect.width * dpi / 72.0)
+                image_height_pixels = int(pdf_rect.height * dpi / 72.0)
+                high_res_width_pixels = int(pdf_rect.width * HIGH_RES_DPI / 72.0)
+                high_res_height_pixels = int(pdf_rect.height * HIGH_RES_DPI / 72.0)
                 
-                # Create pixmap and save image (legacy format)
+                # Create standardized page metadata
+                page_meta = PageMetadata(
+                    page_number=page_number,
+                    pdf_width_points=pdf_rect.width,
+                    pdf_height_points=pdf_rect.height,
+                    pdf_rotation_degrees=page.rotation,
+                    image_width_pixels=image_width_pixels,
+                    image_height_pixels=image_height_pixels,
+                    image_dpi=dpi,
+                    high_res_image_width_pixels=high_res_width_pixels,
+                    high_res_image_height_pixels=high_res_height_pixels,
+                    high_res_dpi=HIGH_RES_DPI
+                )
+                
+                # Create pixmap for this page at standard DPI
                 pix = page.get_pixmap(dpi=dpi)
-                output_image_path = os.path.join(output_dir, f"page_{page_num + 1}.png")
-                pix.save(output_image_path)
                 
-                # Store metadata for coordinate transformation (legacy format)
-                page_metadata[page_num + 1] = {
-                    "pdf_width": pdf_width,
-                    "pdf_height": pdf_height,
-                    "image_width": pix.width,
-                    "image_height": pix.height,
-                    "rotation": rotation,
-                    "dpi": dpi,
-                    "scale_x": pix.width / pdf_width,
-                    "scale_y": pix.height / pdf_height
-                }
+                # Save the page image
+                image_path = os.path.join(output_dir, f"page_{page_number}.png")
+                pix.save(image_path)
+                print(f"   -> Page {page_number} image saved: {image_path} ({pix.width}x{pix.height})")
+                
+                # Store metadata using new format
+                page_metadata[page_number] = page_meta.to_dict()
 
-            # Save legacy metadata to JSON file
+            # Save standardized metadata to JSON file
             metadata_file = os.path.join(output_dir, "page_metadata.json")
             import json
             with open(metadata_file, 'w') as f:
                 json.dump({
                     "docId": doc_id,
                     "totalPages": num_pages,
-                    "dpi": dpi,
                     "pages": page_metadata
                 }, f, indent=2)
 
@@ -159,17 +170,49 @@ def upload_and_process_pdf():
 
             # 5. Return a success response
             print("--- ✅ Successfully processed PDF. Sending response to frontend. ---")
-            return (
-                jsonify(
-                    {
-                        "message": "File processed successfully",
-                        "docId": doc_id,
-                        "totalPages": num_pages,
-                        "processing_summary": processing_results["processing_summary"]
-                    }
-                ),
-                200,
-            )
+            
+            # Debug: Check what's in processing_results to identify serialization issue
+            print(f"📊 Processing results keys: {processing_results.keys()}")
+            print(f"📊 Processing summary: {processing_results['processing_summary']}")
+            
+            # Test JSON serialization of each component
+            import json
+            try:
+                json.dumps(processing_results["processing_summary"])
+                print("✅ processing_summary is JSON serializable")
+            except Exception as e:
+                print(f"❌ processing_summary serialization error: {e}")
+            
+            try:
+                json.dumps(page_metadata)
+                print("✅ page_metadata is JSON serializable")
+            except Exception as e:
+                print(f"❌ page_metadata serialization error: {e}")
+            
+            # Only return the safe parts, not the full processing_results which might contain PageMetadata
+            response_data = {
+                "message": "File processed successfully",
+                "docId": doc_id,
+                "totalPages": num_pages,
+                "processing_summary": processing_results["processing_summary"],
+                "pageMetadata": page_metadata  # This should be serialized dicts now
+            }
+            
+            print(f"📤 Response data keys: {response_data.keys()}")
+            
+            try:
+                json.dumps(response_data)
+                print("✅ Full response_data is JSON serializable")
+            except Exception as e:
+                print(f"❌ response_data serialization error: {e}")
+                # Return minimal response if there's still an issue
+                return jsonify({
+                    "message": "File processed successfully",
+                    "docId": doc_id,
+                    "totalPages": num_pages
+                }), 200
+            
+            return jsonify(response_data), 200
 
         except Exception as e:
             print(f"❌ ERROR: An unexpected error occurred: {e}")
@@ -611,15 +654,44 @@ def generate_clippings():
                     print(f"     Canvas coords: ({canvas_coords['left']:.1f}, {canvas_coords['top']:.1f}) {canvas_coords['width']:.1f}x{canvas_coords['height']:.1f}")
                     print(f"     Canvas dimensions: {canvas_width:.1f}x{canvas_height:.1f}")
                     
-                    # Convert canvas coordinates to PDF coordinates
-                    pdf_coords = canvas_to_pdf_coordinates(
-                        canvas_coords, 
-                        canvas_width, 
-                        canvas_height,
-                        metadata["pages"][str(page_num)]
+                    # Convert canvas coordinates to PDF coordinates using new system
+                    from utils.coordinate_mapping import (
+                        CanvasCoordinates, CoordinateTransformer, PageMetadata
                     )
                     
-                    print(f"     PDF coords: ({pdf_coords['left']:.1f}, {pdf_coords['top']:.1f}) {pdf_coords['width']:.1f}x{pdf_coords['height']:.1f}")
+                    # Load page metadata using new format
+                    page_metadata_dict = metadata["pages"][str(page_num)]
+                    page_metadata = PageMetadata.from_dict(page_metadata_dict)
+                    
+                    # Create coordinate transformer
+                    transformer = CoordinateTransformer(page_metadata)
+                    
+                    # Create canvas coordinates object
+                    canvas_coord_obj = CanvasCoordinates(
+                        left=canvas_coords["left"],
+                        top=canvas_coords["top"],
+                        width=canvas_coords["width"],
+                        height=canvas_coords["height"],
+                        canvas_width=canvas_width,
+                        canvas_height=canvas_height
+                    )
+                    
+                    # Transform to PDF coordinates
+                    pdf_coord_obj = transformer.canvas_to_pdf(canvas_coord_obj)
+                    
+                    # Convert to old format for generate_pdf_clipping function
+                    pdf_coords = {
+                        "left": pdf_coord_obj.left,
+                        "top": pdf_coord_obj.top,
+                        "width": pdf_coord_obj.width,
+                        "height": pdf_coord_obj.height
+                    }
+                    
+                    print(f"     📄 PDF coords (NEW SYSTEM): ({pdf_coords['left']:.2f}, {pdf_coords['top']:.2f}) {pdf_coords['width']:.2f}x{pdf_coords['height']:.2f} points")
+                    print(f"     🎯 Transformation analysis:")
+                    print(f"       Canvas → PDF successful: {pdf_coord_obj is not None}")
+                    print(f"       Transformer used: {transformer.__class__.__name__}")
+                    print(f"       Page metadata: {page_metadata.pdf_width_points}x{page_metadata.pdf_height_points} @ {page_metadata.image_dpi} DPI")
                     
                     # Generate high-res clipping with sequential naming
                     clipping_filename = f"{tag}_{i}.png"
@@ -693,122 +765,20 @@ def generate_clippings():
         return jsonify({"error": str(e)}), 500
 
 
-def canvas_to_pdf_coordinates(canvas_coords, canvas_width, canvas_height, page_metadata):
-    """
-    Convert canvas pixel coordinates to PDF coordinates.
-    Canvas coordinates: top-left origin, pixels
-    PDF coordinates: bottom-left origin, points
-    
-    SUPPORTS: Page rotation and dynamic canvas sizing based on aspect ratio
-    """
-    print(f"       → DETAILED Coordinate transformation debug:")
-    print(f"         INPUT - Canvas coords: ({canvas_coords['left']:.1f}, {canvas_coords['top']:.1f}) {canvas_coords['width']:.1f}x{canvas_coords['height']:.1f}")
-    print(f"         INPUT - Canvas dimensions: {canvas_width:.1f}x{canvas_height:.1f}")
-    
-    # Get PDF and image metadata
-    pdf_width = page_metadata["pdf_width"]
-    pdf_height = page_metadata["pdf_height"]
-    image_width = page_metadata["image_width"]
-    image_height = page_metadata["image_height"]
-    rotation = page_metadata.get("rotation", 0)
-    dpi = page_metadata["dpi"]
-    
-    print(f"         METADATA - PDF: {pdf_width:.1f}x{pdf_height:.1f} pts")
-    print(f"         METADATA - Image: {image_width}x{image_height} px")
-    print(f"         METADATA - Rotation: {rotation}°")
-    print(f"         METADATA - DPI: {dpi}")
-    
-    # NEW: Dynamic scaling calculation matching frontend logic
-    # The frontend now uses dynamic canvas sizing based on aspect ratio with LARGER max dimensions
-    image_aspect_ratio = image_width / image_height
-    max_canvas_width = 1200  # Updated to match new frontend dimensions
-    max_canvas_height = 900  # Updated to match new frontend dimensions
-    
-    if image_aspect_ratio > (max_canvas_width / max_canvas_height):
-        # Image is wider (landscape) - fit to width
-        actual_scale = max_canvas_width / image_width
-        expected_canvas_width = max_canvas_width
-        expected_canvas_height = max_canvas_width / image_aspect_ratio
-    else:
-        # Image is taller (portrait) - fit to height
-        actual_scale = max_canvas_height / image_height
-        expected_canvas_width = max_canvas_height * image_aspect_ratio
-        expected_canvas_height = max_canvas_height
-    
-    print(f"         SCALING - Expected frontend canvas: {expected_canvas_width:.1f}x{expected_canvas_height:.1f}")
-    print(f"         SCALING - Calculated scale: {actual_scale:.6f}")
-    print(f"         SCALING - Image aspect ratio: {image_aspect_ratio:.6f}")
-    
-    # Verify canvas dimensions match frontend calculation
-    if abs(canvas_width - expected_canvas_width) > 1 or abs(canvas_height - expected_canvas_height) > 1:
-        print(f"         ⚠️  CANVAS SIZE MISMATCH: Expected {expected_canvas_width:.1f}x{expected_canvas_height:.1f}, got {canvas_width:.1f}x{canvas_height:.1f}")
-    
-    # Convert canvas coordinates to original image coordinates
-    original_image_left = canvas_coords["left"] / actual_scale
-    original_image_top = canvas_coords["top"] / actual_scale
-    original_image_width = canvas_coords["width"] / actual_scale
-    original_image_height = canvas_coords["height"] / actual_scale
-    
-    print(f"         ORIGINAL IMAGE - Coords: ({original_image_left:.1f}, {original_image_top:.1f}) {original_image_width:.1f}x{original_image_height:.1f}")
-    
-    # Handle page rotation if present
-    if rotation != 0:
-        print(f"         ROTATION - Applying {rotation}° transformation")
-        # TODO: Implement rotation transformation based on rotation angle
-        # For now, log that rotation was detected but not yet implemented
-        print(f"         ⚠️  WARNING: Page rotation detected but not yet implemented in coordinate transformation")
-    
-    # Convert from image coordinates to PDF coordinates
-    # Image was created at specific DPI, so we need to convert back to PDF points
-    points_per_pixel = 72.0 / dpi  # PDF uses 72 points per inch
-    
-    pdf_left = original_image_left * points_per_pixel
-    pdf_width_coord = original_image_width * points_per_pixel
-    pdf_height_coord = original_image_height * points_per_pixel
-    
-    # Handle Y-axis flip: Image has top-left origin, PDF has bottom-left origin
-    pdf_top = pdf_height - (original_image_top * points_per_pixel) - pdf_height_coord
-    
-    print(f"         FINAL PDF - Coords: ({pdf_left:.1f}, {pdf_top:.1f}) {pdf_width_coord:.1f}x{pdf_height_coord:.1f}")
-    
-    # Validation and bounds checking
-    if pdf_left < 0:
-        print(f"         ⚠️  WARNING: PDF left coordinate is negative: {pdf_left:.1f}")
-        pdf_left = max(0, pdf_left)
-    if pdf_top < 0:
-        print(f"         ⚠️  WARNING: PDF top coordinate is negative: {pdf_top:.1f}")
-        pdf_top = max(0, pdf_top)
-    if pdf_left + pdf_width_coord > pdf_width:
-        print(f"         ⚠️  WARNING: PDF width extends beyond page: {pdf_left + pdf_width_coord:.1f} > {pdf_width:.1f}")
-        pdf_width_coord = max(0, pdf_width - pdf_left)
-    if pdf_top + pdf_height_coord > pdf_height:
-        print(f"         ⚠️  WARNING: PDF height extends beyond page: {pdf_top + pdf_height_coord:.1f} > {pdf_height:.1f}")
-        pdf_height_coord = max(0, pdf_height - pdf_top)
-    
-    result = {
-        "left": pdf_left,
-        "top": pdf_top,
-        "width": pdf_width_coord,
-        "height": pdf_height_coord
-    }
-    
-    print(f"         ✅ FINAL RESULT: ({result['left']:.1f}, {result['top']:.1f}) {result['width']:.1f}x{result['height']:.1f}")
-    return result
+# Old coordinate transformation function removed - replaced by new coordinate mapping system
 
 
 def generate_pdf_clipping(doc, page_index, pdf_coords, output_dir, filename_prefix):
     """
     Generate a high-resolution clipping from the PDF.
     
-    CRITICAL: PyMuPDF uses top-left origin coordinates for clipping, 
-    but our coordinate transformation gives us PDF coordinates (bottom-left origin).
-    We need to convert PDF coordinates to MuPDF coordinates.
+    Both PyMuPDF and our coordinate system use top-left origin - no conversion needed!
     """
     page = doc.load_page(page_index)
     
     print(f"       🔍 CLIPPING DEBUG:")
     print(f"         Page rect: {page.rect}")
-    print(f"         PDF coords (bottom-left): ({pdf_coords['left']:.1f}, {pdf_coords['top']:.1f}) {pdf_coords['width']:.1f}x{pdf_coords['height']:.1f}")
+    print(f"         PDF coords (top-left): ({pdf_coords['left']:.1f}, {pdf_coords['top']:.1f}) {pdf_coords['width']:.1f}x{pdf_coords['height']:.1f}")
     
     # Validate minimum dimensions before proceeding
     min_dimension = 1.0  # Minimum 1 point in each dimension
@@ -817,14 +787,13 @@ def generate_pdf_clipping(doc, page_index, pdf_coords, output_dir, filename_pref
         print(f"         Skipping clipping generation for invalid annotation")
         return None
     
-    # Convert PDF coordinates (bottom-left origin) to MuPDF coordinates (top-left origin)
-    page_height = page.rect.height
+    # No coordinate conversion needed - both systems use top-left origin
     mupdf_left = pdf_coords["left"]
-    mupdf_top = page_height - pdf_coords["top"] - pdf_coords["height"]
+    mupdf_top = pdf_coords["top"]
     mupdf_width = pdf_coords["width"]
     mupdf_height = pdf_coords["height"]
     
-    print(f"         MuPDF coords (top-left): ({mupdf_left:.1f}, {mupdf_top:.1f}) {mupdf_width:.1f}x{mupdf_height:.1f}")
+    print(f"         Direct coords (top-left): ({mupdf_left:.1f}, {mupdf_top:.1f}) {mupdf_width:.1f}x{mupdf_height:.1f}")
     
     # Create clipping rectangle using MuPDF coordinates
     clip_rect = fitz.Rect(
@@ -853,10 +822,6 @@ def generate_pdf_clipping(doc, page_index, pdf_coords, output_dir, filename_pref
     
     # Use the intersected rectangle for clipping
     clip_rect = clipped_rect
-    
-    # Verify this matches our expected coordinates
-    expected_top = page_height - pdf_coords["top"] - pdf_coords["height"]
-    print(f"         Verification: Expected top = {page_height:.1f} - {pdf_coords['top']:.1f} - {pdf_coords['height']:.1f} = {expected_top:.1f}")
     
     try:
         # Generate high-resolution pixmap (300 DPI for high quality)

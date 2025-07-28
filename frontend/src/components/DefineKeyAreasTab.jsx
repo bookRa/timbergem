@@ -1,5 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { fabric } from 'fabric';
+import { 
+    CoordinateTransformer, 
+    CanvasCoordinates, 
+    PDFCoordinates,
+    createPageMetadata, 
+    getOptimalCanvasDimensions 
+} from '../utils/coordinateMapping';
 
 const DefineKeyAreasTab = ({ 
     docInfo, 
@@ -40,47 +47,84 @@ const DefineKeyAreasTab = ({
                     fabric.Image.fromURL(legacyImageUrl, (img) => {
                         if (!canvas || canvas._disposed) return;
                         
-                        // Same dynamic sizing logic as in initializeCanvas
-                        const imageAspectRatio = img.width / img.height;
-                        const maxCanvasWidth = 1200;   // Updated to match initializeCanvas
-                        const maxCanvasHeight = 900;   // Updated to match initializeCanvas
+                        console.log(`🖼️  [DefineKeyAreas] Image loaded for page ${pageNumber}: ${img.width}x${img.height}`);
                         
-                        let actualCanvasWidth, actualCanvasHeight, scale;
-                        
-                        if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
-                            actualCanvasWidth = maxCanvasWidth;
-                            actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
-                            scale = maxCanvasWidth / img.width;
+                        // Use new coordinate system for canvas sizing
+                        let scale;
+                        if (docInfo?.pageMetadata?.[pageNumber]) {
+                            const pageMetadata = createPageMetadata(docInfo.pageMetadata[pageNumber]);
+                            const transformer = new CoordinateTransformer(pageMetadata);
+                            const canvasDims = transformer.getCanvasDimensionsForAspectRatio(1200, 900);
+                            
+                            console.log(`📐 [DefineKeyAreas] NEW coordinate system for page ${pageNumber}:`);
+                            console.log(`    PDF: ${pageMetadata.pdfWidthPoints}x${pageMetadata.pdfHeightPoints} points`);
+                            console.log(`    Image: ${pageMetadata.imageWidthPixels}x${pageMetadata.imageHeightPixels} pixels @ ${pageMetadata.imageDpi} DPI`);
+                            console.log(`    Canvas: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} pixels`);
+                            
+                            scale = Math.min(canvasDims.width / img.width, canvasDims.height / img.height);
+                            
+                            img.scale(scale);
+                            canvas.setWidth(canvasDims.width);
+                            canvas.setHeight(canvasDims.height);
+                            
+                            setCanvasDimensions(prev => ({
+                                ...prev,
+                                [pageNumber]: {
+                                    width: canvasDims.width,
+                                    height: canvasDims.height,
+                                    scale: scale,
+                                    pageMetadata: pageMetadata,
+                                    transformer: transformer
+                                }
+                            }));
+                            
+                            console.log(`✅ [DefineKeyAreas] Canvas ${pageNumber} sized using NEW system: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} (scale: ${scale.toFixed(4)})`);
                         } else {
-                            actualCanvasHeight = maxCanvasHeight;
-                            actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
-                            scale = maxCanvasHeight / img.height;
-                        }
-                        
-                        img.scale(scale);
-                        canvas.setWidth(actualCanvasWidth);
-                        canvas.setHeight(actualCanvasHeight);
-                        
-                        setCanvasDimensions(prev => ({
-                            ...prev,
-                            [pageNumber]: {
-                                width: actualCanvasWidth,
-                                height: actualCanvasHeight,
-                                scale: scale // Store scale for clipping calculations
+                            // Fallback to old system if metadata not available
+                            console.warn(`⚠️  [DefineKeyAreas] No page metadata for page ${pageNumber}, using fallback sizing`);
+                            const imageAspectRatio = img.width / img.height;
+                            const maxCanvasWidth = 1200;
+                            const maxCanvasHeight = 900;
+                            
+                            let actualCanvasWidth, actualCanvasHeight;
+                            
+                            if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
+                                actualCanvasWidth = maxCanvasWidth;
+                                actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
+                                scale = maxCanvasWidth / img.width;
+                            } else {
+                                actualCanvasHeight = maxCanvasHeight;
+                                actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
+                                scale = maxCanvasHeight / img.height;
                             }
-                        }));
+                            
+                            img.scale(scale);
+                            canvas.setWidth(actualCanvasWidth);
+                            canvas.setHeight(actualCanvasHeight);
+                            
+                            setCanvasDimensions(prev => ({
+                                ...prev,
+                                [pageNumber]: {
+                                    width: actualCanvasWidth,
+                                    height: actualCanvasHeight,
+                                    scale: scale
+                                }
+                            }));
+                            
+                            console.log(`📊 [DefineKeyAreas] Canvas ${pageNumber} sized using FALLBACK: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)} (scale: ${scale.toFixed(4)})`);
+                        }
                         
                         canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
                             scaleX: scale,
                             scaleY: scale
                         });
                         
-                        console.log(`Background loaded for page ${pageNumber}`);
-                    });
+                        console.log(`✅ [DefineKeyAreas] Background loaded for page ${pageNumber}`);
+                    }, { crossOrigin: 'anonymous' });
                 }
             }
         });
-    }, [pixmapStatus, fabricCanvases, docInfo.docId]);
+    }, [pixmapStatus, fabricCanvases, docInfo.docId, docInfo?.pageMetadata]);
 
     const annotationTools = [
         { id: 'TitleBlock', label: 'Title Block', color: '#FF6B6B', icon: '📋' },
@@ -173,65 +217,50 @@ const DefineKeyAreasTab = ({
         fabric.Image.fromURL(legacyImageUrl, (img) => {
             if (!canvas || canvas._disposed) return;
             
-            // DYNAMIC CANVAS SIZING: Calculate optimal canvas size based on image aspect ratio
-            const imageAspectRatio = img.width / img.height;
-            const maxCanvasWidth = 1200;   // Increased maximum width
-            const maxCanvasHeight = 900;   // Increased maximum height
+            console.log(`🖼️  [DefineKeyAreas] Initializing canvas ${pageNumber} - Image: ${img.width}x${img.height}`);
             
-            let actualCanvasWidth, actualCanvasHeight, scale;
-            
-            // Determine optimal canvas dimensions based on aspect ratio
-            if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
-                // Image is wider (landscape) - fit to width
-                actualCanvasWidth = maxCanvasWidth;
-                actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
-                scale = maxCanvasWidth / img.width;
+            // Use new coordinate system for canvas sizing
+            let scale;
+            if (docInfo?.pageMetadata?.[pageNumber]) {
+                const pageMetadata = createPageMetadata(docInfo.pageMetadata[pageNumber]);
+                const transformer = new CoordinateTransformer(pageMetadata);
+                const canvasDims = transformer.getCanvasDimensionsForAspectRatio(1200, 900);
+                
+                console.log(`📐 [DefineKeyAreas] NEW coordinate system for canvas ${pageNumber}:`);
+                console.log(`    PDF: ${pageMetadata.pdfWidthPoints}x${pageMetadata.pdfHeightPoints} points`);
+                console.log(`    Image: ${pageMetadata.imageWidthPixels}x${pageMetadata.imageHeightPixels} pixels @ ${pageMetadata.imageDpi} DPI`);
+                console.log(`    Canvas: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} pixels`);
+                
+                scale = Math.min(canvasDims.width / img.width, canvasDims.height / img.height);
+                
+                // Scale the image to match canvas
+                img.scale(scale);
+                
+                // Set canvas to exact calculated dimensions
+                canvas.setWidth(canvasDims.width);
+                canvas.setHeight(canvasDims.height);
+                
+                // Store enhanced canvas dimensions with coordinate transformer
+                setCanvasDimensions(prev => ({
+                    ...prev,
+                    [pageNumber]: {
+                        width: canvasDims.width,
+                        height: canvasDims.height,
+                        scale: scale,
+                        pageMetadata: pageMetadata,
+                        transformer: transformer
+                    }
+                }));
+                
+                console.log(`✅ [DefineKeyAreas] Canvas ${pageNumber} initialized with NEW system: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} (scale: ${scale.toFixed(4)})`);
             } else {
-                // Image is taller (portrait) - fit to height
-                actualCanvasHeight = maxCanvasHeight;
-                actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
-                scale = maxCanvasHeight / img.height;
-            }
-            
-            // Scale the image to match canvas
-            img.scale(scale);
-            
-            // Set canvas to exact scaled image dimensions
-            canvas.setWidth(actualCanvasWidth);
-            canvas.setHeight(actualCanvasHeight);
-            
-            // Store canvas dimensions for coordinate mapping - these MUST match what annotations use
-            setCanvasDimensions(prev => ({
-                ...prev,
-                [pageNumber]: {
-                    width: actualCanvasWidth,
-                    height: actualCanvasHeight,
-                    scale: scale // Store scale for clipping calculations
-                }
-            }));
-            
-            console.log(`Canvas ${pageNumber} initialized: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)} (scale: ${scale.toFixed(3)})`);
-            console.log(`  Image: ${img.width}x${img.height}, Aspect ratio: ${imageAspectRatio.toFixed(3)}`);
-            
-            canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
-                scaleX: scale,
-                scaleY: scale
-            });
-        }, (error) => {
-            console.log(`Failed to load legacy image for page ${pageNumber}, trying high-res pixmap`);
-            
-            // Try high-res pixmap format
-            const pixmapImageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}/page_${pageNumber}_pixmap.png`;
-            
-            fabric.Image.fromURL(pixmapImageUrl, (img) => {
-                if (!canvas || canvas._disposed) return;
-                
-                // Same sizing logic for high-res pixmap
+                // Fallback to old system if metadata not available
+                console.warn(`⚠️  [DefineKeyAreas] No page metadata for canvas ${pageNumber}, using fallback sizing`);
                 const imageAspectRatio = img.width / img.height;
-                const maxCanvasWidth = 1200;   // Increased
-                const maxCanvasHeight = 900;   // Increased
+                const maxCanvasWidth = 1200;
+                const maxCanvasHeight = 900;
                 
-                let actualCanvasWidth, actualCanvasHeight, scale;
+                let actualCanvasWidth, actualCanvasHeight;
                 
                 if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
                     actualCanvasWidth = maxCanvasWidth;
@@ -252,11 +281,92 @@ const DefineKeyAreasTab = ({
                     [pageNumber]: {
                         width: actualCanvasWidth,
                         height: actualCanvasHeight,
-                        scale: scale // Store scale for clipping calculations
+                        scale: scale
                     }
                 }));
                 
-                console.log(`Canvas ${pageNumber} initialized with high-res pixmap: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)}`);
+                console.log(`📊 [DefineKeyAreas] Canvas ${pageNumber} initialized with FALLBACK: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)} (scale: ${scale.toFixed(4)})`);
+            }
+            
+            canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
+                scaleX: scale,
+                scaleY: scale
+            });
+        }, (error) => {
+            console.log(`Failed to load legacy image for page ${pageNumber}, trying high-res pixmap`);
+            
+            // Try high-res pixmap format
+            const pixmapImageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}/page_${pageNumber}_pixmap.png`;
+            
+            fabric.Image.fromURL(pixmapImageUrl, (img) => {
+                if (!canvas || canvas._disposed) return;
+                
+                console.log(`🖼️  [DefineKeyAreas] High-res pixmap loaded for canvas ${pageNumber}: ${img.width}x${img.height}`);
+                
+                // Use new coordinate system for high-res pixmap sizing
+                let scale;
+                if (docInfo?.pageMetadata?.[pageNumber]) {
+                    const pageMetadata = createPageMetadata(docInfo.pageMetadata[pageNumber]);
+                    const transformer = new CoordinateTransformer(pageMetadata);
+                    const canvasDims = transformer.getCanvasDimensionsForAspectRatio(1200, 900);
+                    
+                    console.log(`📐 [DefineKeyAreas] High-res coordinate system for canvas ${pageNumber}:`);
+                    console.log(`    PDF: ${pageMetadata.pdfWidthPoints}x${pageMetadata.pdfHeightPoints} points`);
+                    console.log(`    Image: ${pageMetadata.imageWidthPixels}x${pageMetadata.imageHeightPixels} pixels @ ${pageMetadata.imageDpi} DPI`);
+                    console.log(`    Canvas: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} pixels`);
+                    
+                    scale = Math.min(canvasDims.width / img.width, canvasDims.height / img.height);
+                    
+                    img.scale(scale);
+                    canvas.setWidth(canvasDims.width);
+                    canvas.setHeight(canvasDims.height);
+                    
+                    setCanvasDimensions(prev => ({
+                        ...prev,
+                        [pageNumber]: {
+                            width: canvasDims.width,
+                            height: canvasDims.height,
+                            scale: scale,
+                            pageMetadata: pageMetadata,
+                            transformer: transformer
+                        }
+                    }));
+                    
+                    console.log(`✅ [DefineKeyAreas] High-res canvas ${pageNumber} sized with NEW system: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} (scale: ${scale.toFixed(4)})`);
+                } else {
+                    // Fallback to old system
+                    console.warn(`⚠️  [DefineKeyAreas] No metadata for high-res canvas ${pageNumber}, using fallback`);
+                    const imageAspectRatio = img.width / img.height;
+                    const maxCanvasWidth = 1200;
+                    const maxCanvasHeight = 900;
+                    
+                    let actualCanvasWidth, actualCanvasHeight;
+                    
+                    if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
+                        actualCanvasWidth = maxCanvasWidth;
+                        actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
+                        scale = maxCanvasWidth / img.width;
+                    } else {
+                        actualCanvasHeight = maxCanvasHeight;
+                        actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
+                        scale = maxCanvasHeight / img.height;
+                    }
+                    
+                    img.scale(scale);
+                    canvas.setWidth(actualCanvasWidth);
+                    canvas.setHeight(actualCanvasHeight);
+                    
+                    setCanvasDimensions(prev => ({
+                        ...prev,
+                        [pageNumber]: {
+                            width: actualCanvasWidth,
+                            height: actualCanvasHeight,
+                            scale: scale
+                        }
+                    }));
+                    
+                    console.log(`📊 [DefineKeyAreas] High-res canvas ${pageNumber} sized with FALLBACK: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)} (scale: ${scale.toFixed(4)})`);
+                }
                 
                 canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
                     scaleX: scale,
@@ -575,33 +685,55 @@ const DefineKeyAreasTab = ({
                 return;
             }
 
-            console.log('🔍 FRONTEND DEBUG - Generating clippings for annotations:', allAnnotationsFlat);
-            console.log('🔍 FRONTEND DEBUG - Canvas dimensions:', canvasDimensions);
+            console.log('🚀 [DefineKeyAreas] ENHANCED - Generating clippings with NEW coordinate system');
+            console.log('📊 [DefineKeyAreas] Annotations to process:', allAnnotationsFlat);
+            console.log('📐 [DefineKeyAreas] Canvas dimensions:', canvasDimensions);
             
-            // Debug: log annotation details for verification
+            // Enhanced debugging with coordinate transformation analysis
             allAnnotationsFlat.forEach((annotation, index) => {
                 const pageDims = canvasDimensions[annotation.pageNumber];
-                console.log(`🔍 FRONTEND DEBUG - Annotation ${index + 1} (${annotation.tag} on page ${annotation.pageNumber}):`);
-                console.log(`  📍 Coords: (${annotation.left}, ${annotation.top}) ${annotation.width}x${annotation.height}`);
-                console.log(`  📐 Canvas dims: ${pageDims?.width}x${pageDims?.height} (scale: ${pageDims?.scale})`);
+                console.log(`\n🔍 [DefineKeyAreas] ANNOTATION ${index + 1} ANALYSIS (${annotation.tag} on page ${annotation.pageNumber}):`);
+                console.log(`  📍 Canvas Coords: (${annotation.left}, ${annotation.top}) ${annotation.width}x${annotation.height}`);
+                console.log(`  📐 Canvas Dims: ${pageDims?.width}x${pageDims?.height} (scale: ${pageDims?.scale})`);
                 
-                // Get the actual canvas element and check its properties
+                // Calculate PDF coordinates using new system if available
+                if (pageDims?.transformer) {
+                    try {
+                        const canvasCoords = new CanvasCoordinates(
+                            annotation.left, annotation.top, annotation.width, annotation.height,
+                            pageDims.width, pageDims.height
+                        );
+                        
+                        const pdfCoords = pageDims.transformer.canvasToPdf(canvasCoords);
+                        
+                        console.log(`  📄 PDF Coords (NEW SYSTEM): (${pdfCoords.left.toFixed(2)}, ${pdfCoords.top.toFixed(2)}) ${pdfCoords.width.toFixed(2)}x${pdfCoords.height.toFixed(2)} points`);
+                        console.log(`  🎯 Page Metadata: ${pageDims.pageMetadata.pdfWidthPoints}x${pageDims.pageMetadata.pdfHeightPoints} points @ ${pageDims.pageMetadata.imageDpi} DPI`);
+                        
+                        // Store PDF coordinates for backend
+                        annotation.pdfCoordinates = pdfCoords.toDict();
+                        
+                    } catch (error) {
+                        console.error(`  ❌ PDF coordinate calculation failed:`, error);
+                    }
+                } else {
+                    console.warn(`  ⚠️  No coordinate transformer available for page ${annotation.pageNumber}`);
+                }
+                
+                // Original canvas verification
                 const canvasElement = document.getElementById(`canvas-${annotation.pageNumber}`);
                 if (canvasElement) {
-                    console.log(`  🖼️  Canvas element: ${canvasElement.width}x${canvasElement.height} (actual DOM)`);
-                    console.log(`  📏 Canvas style: ${canvasElement.style.width} x ${canvasElement.style.height}`);
+                    console.log(`  🖼️  Canvas Element: ${canvasElement.width}x${canvasElement.height} (DOM)`);
+                    console.log(`  📏 Canvas Style: ${canvasElement.style.width} x ${canvasElement.style.height}`);
                     
-                    // Check if there's a Fabric canvas and get its dimensions
                     const fabricCanvas = fabricCanvases[annotation.pageNumber];
                     if (fabricCanvas) {
-                        console.log(`  🎨 Fabric canvas: ${fabricCanvas.width}x${fabricCanvas.height}`);
-                        console.log(`  🖼️  Background image:`, fabricCanvas.backgroundImage ? 
+                        console.log(`  🎨 Fabric Canvas: ${fabricCanvas.width}x${fabricCanvas.height}`);
+                        console.log(`  🖼️  Background:`, fabricCanvas.backgroundImage ? 
                             `${fabricCanvas.backgroundImage.width}x${fabricCanvas.backgroundImage.height} (scale: ${fabricCanvas.backgroundImage.scaleX}x${fabricCanvas.backgroundImage.scaleY})` : 
                             'None');
                         
-                        // Get all objects on the canvas for comparison
                         const objects = fabricCanvas.getObjects();
-                        console.log(`  📦 Canvas objects (${objects.length}):`);
+                        console.log(`  📦 Canvas Objects (${objects.length}):`);
                         objects.forEach((obj, objIndex) => {
                             if (obj.annotationTag) {
                                 console.log(`    ${objIndex + 1}. ${obj.annotationTag}: (${obj.left}, ${obj.top}) ${obj.width}x${obj.height}`);

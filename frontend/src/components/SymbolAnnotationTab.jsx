@@ -1,5 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { fabric } from 'fabric';
+import { 
+    ClippingCoordinateTransformer, 
+    CanvasCoordinates, 
+    PDFCoordinates,
+    createPageMetadata,
+    HIGH_RES_DPI 
+} from '../utils/coordinateMapping';
 
 const SymbolAnnotationTab = ({ 
     docInfo, 
@@ -529,94 +536,202 @@ const SymbolAnnotationTab = ({
 
     const saveSymbolClippings = async () => {
         try {
-            console.log('Saving symbol clippings...', symbolData);
+            console.log('🚀 [SymbolAnnotation] ENHANCED - Saving symbols with NEW coordinate system');
+            console.log('📊 [SymbolAnnotation] Symbol data:', symbolData);
             
-            // Prepare symbol data for backend
+            // Prepare symbol data with enhanced coordinate transformation
             const symbolsToSave = [];
-            
-            console.log(`💾 PREPARING TO SAVE SYMBOLS:`, symbolData);
             
             Object.entries(symbolData).forEach(([legendId, legendSymbols]) => {
                 const clippingData = clippingImages[legendId];
                 const imageElement = document.querySelector(`img[src="${clippingData?.url}"]`);
                 
-                console.log(`📐 LEGEND ${legendId}:`, {
-                    hasClippingData: !!clippingData,
-                    hasImageElement: !!imageElement,
-                    naturalSize: imageElement ? `${imageElement.naturalWidth}x${imageElement.naturalHeight}` : 'N/A'
-                });
+                console.log(`\n📐 [SymbolAnnotation] LEGEND ${legendId} ANALYSIS:`);
+                console.log(`  Has clipping data: ${!!clippingData}`);
+                console.log(`  Has image element: ${!!imageElement}`);
+                console.log(`  Natural size: ${imageElement ? `${imageElement.naturalWidth}x${imageElement.naturalHeight}` : 'N/A'}`);
                 
-                Object.values(legendSymbols).forEach(symbol => {
-                    if (symbol.name && symbol.name.trim()) {
-                        
-                        if (clippingData && imageElement) {
-                            // Try to get canvas scale from symbol or fallback to current canvas
-                            let canvasScale = symbol.canvasScale;
+                // Get legend annotation and page metadata for new coordinate system
+                const legendAnnotation = clippingData?.annotation;
+                const pageNumber = legendAnnotation?.pageNumber;
+                const pageMetadata = docInfo?.pageMetadata?.[pageNumber];
+                
+                if (pageMetadata && legendAnnotation?.pdfCoordinates) {
+                    console.log(`  ✅ NEW coordinate system available for legend ${legendId}`);
+                    console.log(`  📄 Legend PDF coords:`, legendAnnotation.pdfCoordinates);
+                    
+                    // Create PDF coordinates for the legend
+                    const legendPdfCoords = new PDFCoordinates(
+                        legendAnnotation.pdfCoordinates.left_points,
+                        legendAnnotation.pdfCoordinates.top_points,
+                        legendAnnotation.pdfCoordinates.width_points,
+                        legendAnnotation.pdfCoordinates.height_points
+                    );
+                    
+                    // Create clipping coordinate transformer
+                    const pageMetaObj = createPageMetadata(pageMetadata);
+                    const clippingTransformer = new ClippingCoordinateTransformer(
+                        legendPdfCoords,
+                        HIGH_RES_DPI,
+                        pageMetaObj
+                    );
+                    
+                    console.log(`  🎯 Clipping transformer created: ${clippingTransformer.clippingWidthPixels}x${clippingTransformer.clippingHeightPixels} pixels`);
+                    
+                    Object.values(legendSymbols).forEach(symbol => {
+                        if (symbol.name && symbol.name.trim()) {
+                            console.log(`\n  🔣 [SymbolAnnotation] SYMBOL ANALYSIS: ${symbol.name}`);
+                            console.log(`    Canvas coords: (${symbol.left}, ${symbol.top}) ${symbol.width}x${symbol.height}`);
                             
-                            if (!canvasScale) {
-                                // Fallback: try to get current canvas dimensions
-                                const canvas = fabricCanvases[legendId];
-                                if (canvas) {
-                                    canvasScale = {
-                                        displayedWidth: canvas.width,
-                                        displayedHeight: canvas.height
-                                    };
-                                    console.log(`⚠️ FALLBACK SCALE for ${symbol.name}:`, canvasScale);
+                            try {
+                                // Get canvas dimensions from symbol or fallback
+                                let canvasWidth, canvasHeight;
+                                if (symbol.canvasScale) {
+                                    canvasWidth = symbol.canvasScale.displayedWidth;
+                                    canvasHeight = symbol.canvasScale.displayedHeight;
+                                } else if (fabricCanvases[legendId]) {
+                                    canvasWidth = fabricCanvases[legendId].width;
+                                    canvasHeight = fabricCanvases[legendId].height;
+                                } else if (imageElement) {
+                                    canvasWidth = imageElement.offsetWidth;
+                                    canvasHeight = imageElement.offsetHeight;
+                                } else {
+                                    throw new Error('No canvas dimensions available');
                                 }
-                            }
-                            
-                            if (canvasScale) {
-                                const scaleX = imageElement.naturalWidth / canvasScale.displayedWidth;
-                                const scaleY = imageElement.naturalHeight / canvasScale.displayedHeight;
                                 
-                                const naturalCoords = {
-                                    left: symbol.left * scaleX,
-                                    top: symbol.top * scaleY,
-                                    width: symbol.width * scaleX,
-                                    height: symbol.height * scaleY
-                                };
+                                console.log(`    Canvas dims: ${canvasWidth}x${canvasHeight}`);
                                 
-                                console.log(`🔄 SCALING ${symbol.name}:`, {
-                                    canvas: { left: symbol.left, top: symbol.top, width: symbol.width, height: symbol.height },
-                                    scale: { scaleX, scaleY },
-                                    natural: naturalCoords
-                                });
+                                // Create symbol canvas coordinates
+                                const symbolCanvasCoords = new CanvasCoordinates(
+                                    symbol.left, symbol.top, symbol.width, symbol.height,
+                                    canvasWidth, canvasHeight
+                                );
+                                
+                                // Transform to absolute PDF coordinates
+                                const symbolPdfCoords = clippingTransformer.symbolCanvasToPdf(symbolCanvasCoords);
+                                
+                                console.log(`    PDF coords (NEW SYSTEM): (${symbolPdfCoords.left.toFixed(3)}, ${symbolPdfCoords.top.toFixed(3)}) ${symbolPdfCoords.width.toFixed(3)}x${symbolPdfCoords.height.toFixed(3)} points`);
+                                
+                                // Get clipping coordinates for image extraction
+                                const clippingCoords = clippingTransformer.canvasToClipping(symbolCanvasCoords);
                                 
                                 symbolsToSave.push({
                                     ...symbol,
-                                    ...naturalCoords,
                                     legendId: legendId,
-                                    originalCanvasCoords: {
-                                        left: symbol.left,
-                                        top: symbol.top,
-                                        width: symbol.width,
-                                        height: symbol.height
-                                    }
+                                    // Canvas coordinates (for UI)
+                                    left: symbol.left,
+                                    top: symbol.top,
+                                    width: symbol.width,
+                                    height: symbol.height,
+                                    // Canvas dimensions
+                                    canvasWidth: canvasWidth,
+                                    canvasHeight: canvasHeight,
+                                    // Coordinate system info
+                                    coordinateSystem: 'NEW_SYSTEM',
+                                    pdfCoordinates: symbolPdfCoords.toDict(),
+                                    clippingCoordinates: clippingCoords.toDict(),
+                                    canvasCoordinates: symbolCanvasCoords.toDict()
                                 });
-                            } else {
-                                console.log(`❌ NO SCALE INFO for ${symbol.name}, using original coords`);
+                                
+                                console.log(`    ✅ Symbol ${symbol.name} processed with NEW coordinate system`);
+                                
+                            } catch (error) {
+                                console.error(`    ❌ NEW coordinate system failed for ${symbol.name}:`, error);
+                                // Fallback to old system
+                                console.log(`    🔄 Using FALLBACK coordinate system for ${symbol.name}`);
                                 symbolsToSave.push({
                                     ...symbol,
-                                    legendId: legendId
+                                    legendId: legendId,
+                                    coordinateSystem: 'FALLBACK'
                                 });
                             }
-                        } else {
-                            console.log(`❌ NO CLIPPING DATA for ${symbol.name}`);
-                            symbolsToSave.push({
-                                ...symbol,
-                                legendId: legendId
-                            });
                         }
-                    }
-                });
+                    });
+                } else {
+                    // Fallback to old coordinate system
+                    console.warn(`  ⚠️  [SymbolAnnotation] No NEW coordinate system data for legend ${legendId}, using FALLBACK`);
+                    
+                    Object.values(legendSymbols).forEach(symbol => {
+                        if (symbol.name && symbol.name.trim()) {
+                            if (clippingData && imageElement) {
+                                // Old coordinate transformation logic
+                                let canvasScale = symbol.canvasScale;
+                                
+                                if (!canvasScale) {
+                                    const canvas = fabricCanvases[legendId];
+                                    if (canvas) {
+                                        canvasScale = {
+                                            displayedWidth: canvas.width,
+                                            displayedHeight: canvas.height
+                                        };
+                                    }
+                                }
+                                
+                                if (canvasScale) {
+                                    const scaleX = imageElement.naturalWidth / canvasScale.displayedWidth;
+                                    const scaleY = imageElement.naturalHeight / canvasScale.displayedHeight;
+                                    
+                                    const naturalCoords = {
+                                        left: symbol.left * scaleX,
+                                        top: symbol.top * scaleY,
+                                        width: symbol.width * scaleX,
+                                        height: symbol.height * scaleY
+                                    };
+                                    
+                                    console.log(`  🔄 FALLBACK scaling ${symbol.name}:`, {
+                                        canvas: { left: symbol.left, top: symbol.top, width: symbol.width, height: symbol.height },
+                                        scale: { scaleX, scaleY },
+                                        natural: naturalCoords
+                                    });
+                                    
+                                    symbolsToSave.push({
+                                        ...symbol,
+                                        ...naturalCoords,
+                                        legendId: legendId,
+                                        coordinateSystem: 'FALLBACK',
+                                        originalCanvasCoords: {
+                                            left: symbol.left,
+                                            top: symbol.top,
+                                            width: symbol.width,
+                                            height: symbol.height
+                                        }
+                                    });
+                                } else {
+                                    symbolsToSave.push({
+                                        ...symbol,
+                                        legendId: legendId,
+                                        coordinateSystem: 'FALLBACK_NO_SCALE'
+                                    });
+                                }
+                            } else {
+                                symbolsToSave.push({
+                                    ...symbol,
+                                    legendId: legendId,
+                                    coordinateSystem: 'FALLBACK_NO_DATA'
+                                });
+                            }
+                        }
+                    });
+                }
             });
             
-            console.log(`📤 SYMBOLS TO SAVE:`, symbolsToSave);
+            console.log(`\n🚀 [SymbolAnnotation] FINAL SYMBOLS TO SAVE (${symbolsToSave.length} total):`);
+            symbolsToSave.forEach((symbol, index) => {
+                console.log(`  ${index + 1}. ${symbol.name} (${symbol.coordinateSystem}):`);
+                if (symbol.coordinateSystem === 'NEW_SYSTEM') {
+                    console.log(`     Canvas: (${symbol.left}, ${symbol.top}) ${symbol.width}x${symbol.height}`);
+                    console.log(`     PDF: (${symbol.pdfCoordinates.left_points.toFixed(2)}, ${symbol.pdfCoordinates.top_points.toFixed(2)}) ${symbol.pdfCoordinates.width_points.toFixed(2)}x${symbol.pdfCoordinates.height_points.toFixed(2)} points`);
+                } else {
+                    console.log(`     Fallback coordinates:`, { left: symbol.left, top: symbol.top, width: symbol.width, height: symbol.height });
+                }
+            });
 
             if (symbolsToSave.length === 0) {
                 alert('No named symbols to save. Please add names to your symbols first.');
                 return;
             }
+
+            console.log(`📤 [SymbolAnnotation] Sending ${symbolsToSave.length} symbols to backend...`);
 
             const response = await fetch('/api/save_symbol_clippings', {
                 method: 'POST',
@@ -631,9 +746,11 @@ const SymbolAnnotationTab = ({
             const data = await response.json();
             
             if (response.ok) {
+                console.log(`✅ [SymbolAnnotation] Backend response:`, data);
                 alert(`✅ Saved ${data.savedSymbols} symbol clippings!`);
                 await onSaveData();
             } else {
+                console.error(`❌ [SymbolAnnotation] Backend error:`, data);
                 alert(`❌ Failed to save symbols: ${data.error}`);
             }
         } catch (error) {
