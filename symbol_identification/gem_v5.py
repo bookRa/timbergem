@@ -7,21 +7,21 @@ import shutil
 
 # --- Configuration ---
 SOURCE_IMAGE_PATH = "page_4.png"
-TEMPLATE_IMAGE_PATH = "window.png"
-# TEMPLATE_IMAGE_PATH = "door.png"
-# TEMPLATE_IMAGE_PATH = "assembly.png"
+TEMPLATE_IMAGE_PATH = "symbol_window.png"
+# TEMPLATE_IMAGE_PATH = "symbol_door.png"
+# TEMPLATE_IMAGE_PATH = "symbol_assembly.png"
 
 # --- Template Size Configurations ---
 # Target sizes for different templates (width, height)
-DOOR_TEMPLATE_SIZE = (84, 43)  # door.png target size
-ASSEMBLY_TEMPLATE_SIZE = (94, 94)  # assembly.png target size (square)
-WINDOW_TEMPLATE_SIZE = (66, 77)  # window.png target size
+DOOR_TEMPLATE_SIZE = (84, 43)  # symbol_door.png target size
+ASSEMBLY_TEMPLATE_SIZE = (94, 94)  # symbol_assembly.png target size (square)
+WINDOW_TEMPLATE_SIZE = (66, 77)  # symbol_window.png target size
 
 # Map template files to their target sizes
 TEMPLATE_SIZES = {
-    "door.png": DOOR_TEMPLATE_SIZE,
-    "assembly.png": ASSEMBLY_TEMPLATE_SIZE,
-    "window.png": WINDOW_TEMPLATE_SIZE,
+    "symbol_door.png": DOOR_TEMPLATE_SIZE,
+    "symbol_assembly.png": ASSEMBLY_TEMPLATE_SIZE,
+    "symbol_window.png": WINDOW_TEMPLATE_SIZE,
 }
 
 # Get current template's target size
