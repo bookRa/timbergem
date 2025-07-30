@@ -13,6 +13,7 @@ from utils.coordinate_mapping import (
     PDFCoordinates, CanvasCoordinates, ClippingCoordinates, ClippingCoordinateTransformer,
     PageMetadata, HIGH_RES_DPI
 )
+from utils.symbol_dimensions import SymbolDimensionCalculator
 
 # Create blueprint for symbol annotation API
 symbol_annotation_bp = Blueprint('symbol_annotation', __name__)
@@ -69,6 +70,7 @@ def save_symbol_clippings():
     
     try:
         data = request.get_json()
+        pdf_document = None  # Initialize to handle cleanup on errors
         
         if not data:
             return jsonify({"error": "No data received"}), 400
@@ -106,6 +108,14 @@ def save_symbol_clippings():
         metadata_file = os.path.join(doc_dir, "page_metadata.json")
         if not os.path.exists(metadata_file):
             return jsonify({"error": "Page metadata not found"}), 404
+        
+        # Load the original PDF document for symbol dimension calculations
+        pdf_file = os.path.join(doc_dir, "original.pdf")
+        if not os.path.exists(pdf_file):
+            return jsonify({"error": "Original PDF not found"}), 404
+        
+        pdf_document = fitz.open(pdf_file)
+        dimension_calculator = SymbolDimensionCalculator()
         
         with open(metadata_file, 'r') as f:
             metadata_dict = json.load(f)
@@ -241,6 +251,18 @@ def save_symbol_clippings():
                     print(f"       ✅ Saved symbol image: {symbol_path}")
                     print(f"       Image size: {symbol_image.size}")
                     
+                    # Calculate symbol dimensions using contour analysis
+                    try:
+                        symbol_dimensions = dimension_calculator.calculate_dimensions_from_pdf(
+                            pdf_document, 
+                            page_number, 
+                            symbol_pdf_coords
+                        )
+                        print(f"       📏 Symbol dimensions: {symbol_dimensions}")
+                    except Exception as e:
+                        print(f"       ⚠️  Failed to calculate symbol dimensions: {e}")
+                        symbol_dimensions = {"height_pixels_300dpi": 0, "width_pixels_300dpi": 0}
+                    
                     # Create complete symbol annotation object
                     symbol_annotation = SymbolAnnotation(
                         id=str(uuid.uuid4()),
@@ -265,6 +287,7 @@ def save_symbol_clippings():
                         "image_info": symbol_annotation.to_dict()["image_info"],
                         "page_number": page_number,
                         "coordinate_system": symbol.get("coordinateSystem", "UNKNOWN"),
+                        "symbol_template_dimensions": symbol_dimensions,
                         "frontend_data": {
                             "canvas_coords": {
                                 "left": symbol.get("left"),
@@ -283,6 +306,7 @@ def save_symbol_clippings():
                     print(f"         Coordinate System: {symbol_meta['coordinate_system']}")
                     print(f"         PDF Coordinates: ({symbol_pdf_coords.left:.2f}, {symbol_pdf_coords.top:.2f}) {symbol_pdf_coords.width:.2f}x{symbol_pdf_coords.height:.2f}")
                     print(f"         Canvas Coordinates: ({symbol.get('left')}, {symbol.get('top')}) {symbol.get('width')}x{symbol.get('height')}")
+                    print(f"         Symbol Dimensions: {symbol_dimensions}")
                     print(f"         Image saved: {symbol_path}")
                     
                     symbol_metadata.append(symbol_meta)
@@ -319,6 +343,9 @@ def save_symbol_clippings():
         print(f"     -> Saved {len(saved_symbols)} symbols")
         print(f"     -> Metadata saved: {metadata_file}")
         
+        # Close the PDF document
+        pdf_document.close()
+        
         return jsonify({
             "message": "Symbol clippings saved successfully",
             "docId": doc_id,
@@ -328,6 +355,12 @@ def save_symbol_clippings():
         }), 200
         
     except Exception as e:
+        # Ensure PDF document is closed even on error
+        try:
+            if pdf_document is not None:
+                pdf_document.close()
+        except:
+            pass
         print(f"❌ ERROR: Failed to save symbol clippings: {e}")
         import traceback
         traceback.print_exc()

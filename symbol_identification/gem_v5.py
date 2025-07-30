@@ -7,9 +7,9 @@ import shutil
 
 # --- Configuration ---
 SOURCE_IMAGE_PATH = "page_4.png"
-TEMPLATE_IMAGE_PATH = "symbol_window.png"
+# TEMPLATE_IMAGE_PATH = "symbol_window.png"
 # TEMPLATE_IMAGE_PATH = "symbol_door.png"
-# TEMPLATE_IMAGE_PATH = "symbol_assembly.png"
+TEMPLATE_IMAGE_PATH = "symbol_assembly.png"
 
 # --- Template Size Configurations ---
 # Target sizes for different templates (width, height)
