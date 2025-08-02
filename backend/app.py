@@ -7,6 +7,7 @@ import fitz  # PyMuPDF
 # Import new modular components
 from api.page_to_html import page_to_html_bp
 from api.symbol_annotation import symbol_annotation_bp
+from api.symbol_detection import symbol_detection_bp
 from utils.pdf_processor import PDFProcessor
 
 # --- Basic Flask App Setup ---
@@ -15,6 +16,7 @@ app = Flask(__name__)
 # Register blueprints
 app.register_blueprint(page_to_html_bp)
 app.register_blueprint(symbol_annotation_bp)
+app.register_blueprint(symbol_detection_bp)
 
 # --- CORS Setup ---
 # Configure CORS for development with specific origins

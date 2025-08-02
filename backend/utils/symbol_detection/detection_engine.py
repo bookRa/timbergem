@@ -1,25 +1,128 @@
 """
-Simple SymbolDetectionEngine wrapper for milestone 1 testing.
+Main SymbolDetectionEngine class - public interface for detection operations.
 
-This provides a minimal interface for testing the core detection algorithm
-without the full orchestration system (which will be implemented in later milestones).
+This provides the complete detection system including multi-symbol, multi-page
+orchestration, storage, and progress tracking capabilities.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable, Any
+from .detection_coordinator import DetectionCoordinator
 from .detection_algorithm import SymbolDetectionAlgorithm, DetectionCandidate
 
 
 class SymbolDetectionEngine:
     """
-    Minimal detection engine for milestone 1 testing.
+    Main interface for symbol detection operations.
     
-    This class provides a simple interface to test the core detection algorithm
-    without requiring the full multi-symbol, multi-page orchestration system.
+    This class provides the complete detection system including:
+    - Multi-symbol, multi-page detection orchestration
+    - Real-time progress tracking
+    - Result storage and retrieval
+    - Detection status management
     """
     
-    def __init__(self):
+    def __init__(self, doc_id: str, processed_folder: str):
+        """
+        Initialize the detection engine for a specific document.
+        
+        Args:
+            doc_id: Document identifier
+            processed_folder: Path to processed documents folder
+        """
+        self.doc_id = doc_id
+        self.coordinator = DetectionCoordinator(doc_id, processed_folder)
+        
+        # Keep algorithm accessible for testing/debugging
         self.algorithm = SymbolDetectionAlgorithm()
     
+    def run_detection(
+        self,
+        symbol_ids: Optional[List[str]] = None,
+        detection_params: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+    ) -> str:
+        """
+        Execute symbol detection across specified symbols and all pages.
+        
+        Args:
+            symbol_ids: List of symbol IDs to detect (None = all symbols)
+            detection_params: Detection algorithm parameters:
+                - match_threshold: Template matching threshold (default: 0.30)
+                - iou_threshold: IoU verification threshold (default: 0.32) 
+                - scale_variance_px: Scale variation in pixels (default: 2)
+                - rotation_range: Rotation range in degrees (default: (-1, 1))
+                - rotation_step: Rotation step in degrees (default: 1)
+            progress_callback: Optional callback function for progress updates
+                
+        Returns:
+            Detection run ID for tracking and loading results
+            
+        Raises:
+            ValueError: If no symbol templates found or invalid parameters
+            FileNotFoundError: If required document files missing
+        """
+        return self.coordinator.run_detection(symbol_ids, detection_params, progress_callback)
+    
+    def get_detection_progress(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get real-time progress for a detection run.
+        
+        Args:
+            run_id: Detection run ID
+            
+        Returns:
+            Progress data dict or None if run not found
+        """
+        return self.coordinator.get_detection_progress(run_id)
+    
+    def load_detection_results(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Load complete detection results for a run.
+        
+        Args:
+            run_id: Detection run ID
+            
+        Returns:
+            Complete detection results dict or None if not found
+        """
+        return self.coordinator.load_detection_results(run_id)
+    
+    def update_detection_status(self, run_id: str, updates: List[Dict[str, Any]]):
+        """
+        Update status of individual detections (accept/reject/modify).
+        
+        Args:
+            run_id: Detection run ID
+            updates: List of detection updates, each containing:
+                - detectionId: ID of detection to update
+                - action: "accept", "reject", or "modify"
+                - newCoords: New coordinates if action is "modify"
+                - reviewedBy: User who made the review
+        """
+        return self.coordinator.update_detection_status(run_id, updates)
+    
+    def list_detection_runs(self) -> List[Dict[str, Any]]:
+        """
+        List all detection runs for this document.
+        
+        Returns:
+            List of detection run summaries
+        """
+        return self.coordinator.list_detection_runs()
+    
+    def delete_detection_run(self, run_id: str) -> bool:
+        """
+        Delete a detection run and all its data.
+        
+        Args:
+            run_id: Detection run ID
+            
+        Returns:
+            True if deleted successfully, False if not found
+        """
+        return self.coordinator.delete_detection_run(run_id)
+    
+    # Legacy method for testing/debugging - detect single symbol on single page
     def detect_symbol_on_page(
         self,
         page_pixmap,
@@ -29,9 +132,7 @@ class SymbolDetectionEngine:
         detection_params: Optional[Dict] = None
     ) -> List[DetectionCandidate]:
         """
-        Detect a single symbol type on a single page.
-        
-        This is a direct wrapper around the detection algorithm for testing purposes.
+        Detect a single symbol type on a single page (legacy method for testing).
         
         Args:
             page_pixmap: Page image as numpy array at 300 DPI

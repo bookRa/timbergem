@@ -12,11 +12,18 @@ Key Components:
 
 from .detection_algorithm import SymbolDetectionAlgorithm, DetectionCandidate
 from .detection_engine import SymbolDetectionEngine
+from .detection_storage import DetectionStorage
+from .detection_progress import DetectionProgress, ProgressMonitor
+from .detection_coordinator import DetectionCoordinator
 
 __all__ = [
     'SymbolDetectionAlgorithm',
     'DetectionCandidate', 
-    'SymbolDetectionEngine'
+    'SymbolDetectionEngine',
+    'DetectionStorage',
+    'DetectionProgress',
+    'ProgressMonitor',
+    'DetectionCoordinator'
 ]
 
 # Version info
