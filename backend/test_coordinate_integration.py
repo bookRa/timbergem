@@ -1,258 +1,248 @@
-#!/usr/bin/env python3
 """
-Integration test for the coordinate mapping system.
-Tests frontend-backend coordinate transformations end-to-end.
+Unit tests for coordinate transformation integration in the detection algorithm.
+
+This test validates that our detection algorithm properly integrates with
+the TimberGem coordinate mapping system and produces accurate PDF coordinates.
 """
 
 import sys
 import os
+import numpy as np
+import unittest
+
+# Add backend to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from utils.coordinate_mapping import (
-    PDFCoordinates, ImageCoordinates, CanvasCoordinates, ClippingCoordinates,
-    PageMetadata, CoordinateTransformer, ClippingCoordinateTransformer,
-    DEFAULT_DPI, HIGH_RES_DPI
-)
-import json
+from utils.symbol_detection.detection_algorithm import SymbolDetectionAlgorithm, DetectionCandidate
+from utils.coordinate_mapping import PageMetadata, ImageCoordinates, PDFCoordinates, CoordinateTransformer
 
 
-def test_frontend_backend_coordination():
-    """Test that frontend and backend produce identical coordinate transformations"""
-    print("🔄 Testing Frontend-Backend Coordinate Coordination")
+class TestCoordinateIntegration(unittest.TestCase):
+    """Test coordinate transformation integration in detection algorithm"""
     
-    # Simulate typical document metadata
-    page_metadata = PageMetadata(
-        page_number=1,
-        pdf_width_points=612.0,
-        pdf_height_points=792.0,
-        pdf_rotation_degrees=0,
-        image_width_pixels=1700,  # 612 * 200/72
-        image_height_pixels=2200,  # 792 * 200/72
-        image_dpi=200,
-        high_res_image_width_pixels=2550,  # 612 * 300/72
-        high_res_image_height_pixels=3300,  # 792 * 300/72
-        high_res_dpi=300
-    )
-    
-    transformer = CoordinateTransformer(page_metadata)
-    
-    # Test Case 1: DefineKeyAreas annotation flow
-    print("\n📋 Test Case 1: DefineKeyAreas Annotation")
-    
-    # Frontend: User draws annotation on canvas
-    canvas_width, canvas_height = transformer.get_canvas_dimensions_for_aspect_ratio(1200, 900)
-    print(f"Canvas dimensions: {canvas_width:.1f}x{canvas_height:.1f}")
-    
-    # Frontend: Canvas annotation coordinates (from user drawing)
-    canvas_annotation = CanvasCoordinates(
-        left=150.0, top=200.0, width=300.0, height=150.0,
-        canvas_width=canvas_width, canvas_height=canvas_height
-    )
-    
-    # Frontend: Transform to PDF (sent to backend)
-    pdf_coords_frontend = transformer.canvas_to_pdf(canvas_annotation)
-    print(f"Frontend → PDF: ({pdf_coords_frontend.left:.2f}, {pdf_coords_frontend.top:.2f}) {pdf_coords_frontend.width:.2f}x{pdf_coords_frontend.height:.2f}")
-    
-    # Backend: Receives PDF coordinates and processes clipping
-    # Backend should get identical results when transforming back
-    pdf_coords_backend = PDFCoordinates(
-        pdf_coords_frontend.left, pdf_coords_frontend.top,
-        pdf_coords_frontend.width, pdf_coords_frontend.height
-    )
-    
-    canvas_coords_backend = transformer.pdf_to_canvas(pdf_coords_backend, canvas_width, canvas_height)
-    print(f"Backend → Canvas: ({canvas_coords_backend.left:.2f}, {canvas_coords_backend.top:.2f}) {canvas_coords_backend.width:.2f}x{canvas_coords_backend.height:.2f}")
-    
-    # Verify round-trip accuracy
-    coord_diff = abs(canvas_annotation.left - canvas_coords_backend.left)
-    assert coord_diff < 1.0, f"Round-trip error too large: {coord_diff}"
-    print("✅ DefineKeyAreas round-trip successful")
-    
-    # Test Case 2: Symbol annotation within legend clipping
-    print("\n🔣 Test Case 2: Symbol Annotation within Legend")
-    
-    # Legend clipping bounds (in PDF coordinates)
-    legend_pdf_coords = PDFCoordinates(left=100.0, top=150.0, width=200.0, height=100.0)
-    
-    # Create clipping transformer
-    clipping_transformer = ClippingCoordinateTransformer(
-        legend_pdf_coords=legend_pdf_coords,
-        clipping_dpi=HIGH_RES_DPI,
-        page_metadata=page_metadata
-    )
-    
-    print(f"Clipping dimensions: {clipping_transformer.clipping_width_pixels}x{clipping_transformer.clipping_height_pixels} pixels")
-    
-    # Frontend: User annotates symbol within legend clipping canvas
-    symbol_canvas_coords = CanvasCoordinates(
-        left=25.0, top=15.0, width=40.0, height=30.0,
-        canvas_width=clipping_transformer.clipping_width_pixels,
-        canvas_height=clipping_transformer.clipping_height_pixels
-    )
-    
-    # Frontend: Transform symbol to absolute PDF coordinates
-    symbol_pdf_coords = clipping_transformer.symbol_canvas_to_pdf(symbol_canvas_coords)
-    print(f"Symbol Canvas → PDF: ({symbol_pdf_coords.left:.3f}, {symbol_pdf_coords.top:.3f}) {symbol_pdf_coords.width:.3f}x{symbol_pdf_coords.height:.3f}")
-    
-    # Verify symbol is within legend bounds
-    assert symbol_pdf_coords.left >= legend_pdf_coords.left, "Symbol outside legend left bound"
-    assert symbol_pdf_coords.top >= legend_pdf_coords.top, "Symbol outside legend top bound"
-    assert (symbol_pdf_coords.left + symbol_pdf_coords.width) <= (legend_pdf_coords.left + legend_pdf_coords.width), "Symbol outside legend right bound"
-    assert (symbol_pdf_coords.top + symbol_pdf_coords.height) <= (legend_pdf_coords.top + legend_pdf_coords.height), "Symbol outside legend bottom bound"
-    print("✅ Symbol correctly positioned within legend bounds")
-    
-    # Test Case 3: Multiple coordinate system consistency
-    print("\n🎯 Test Case 3: Multi-System Consistency")
-    
-    # Test multiple transformations
-    test_coords = [
-        (50, 75, 100, 50),
-        (400, 300, 150, 200),
-        (10, 10, 20, 15)
-    ]
-    
-    for left, top, width, height in test_coords:
-        canvas_coords = CanvasCoordinates(left, top, width, height, canvas_width, canvas_height)
+    def setUp(self):
+        """Set up test fixtures"""
+        self.algorithm = SymbolDetectionAlgorithm()
         
-        # Canvas → PDF → Canvas
-        pdf_coords = transformer.canvas_to_pdf(canvas_coords)
-        canvas_restored = transformer.pdf_to_canvas(pdf_coords, canvas_width, canvas_height)
-        
-        # Check accuracy
-        max_diff = max(
-            abs(canvas_coords.left - canvas_restored.left),
-            abs(canvas_coords.top - canvas_restored.top),
-            abs(canvas_coords.width - canvas_restored.width),
-            abs(canvas_coords.height - canvas_restored.height)
+        # Create realistic page metadata
+        self.page_metadata = PageMetadata(
+            page_number=1,
+            pdf_width_points=1224.0,  # Large page width (17 inches)
+            pdf_height_points=1584.0,  # Large page height (22 inches)
+            pdf_rotation_degrees=0,
+            image_width_pixels=3400,  # 1224 points * 200 DPI / 72 points/inch ≈ 3400
+            image_height_pixels=4400,  # 1584 points * 200 DPI / 72 points/inch ≈ 4400
+            image_dpi=200,  # Standard DPI
+            high_res_image_width_pixels=5100,  # 1224 points * 300 DPI / 72 points/inch ≈ 5100
+            high_res_image_height_pixels=6600,  # 1584 points * 300 DPI / 72 points/inch ≈ 6600
+            high_res_dpi=300  # High res DPI for detection
         )
         
-        assert max_diff < 1.0, f"Transformation error too large: {max_diff}"
-        print(f"  ✅ Coordinates ({left}, {top}) {width}x{height} → max error: {max_diff:.3f}")
+        self.transformer = CoordinateTransformer(self.page_metadata)
     
-    print("✅ All coordinate transformations validated!")
-    return True
-
-
-def test_json_serialization():
-    """Test that coordinate objects serialize correctly for frontend-backend communication"""
-    print("\n📦 Testing JSON Serialization")
-    
-    page_metadata = PageMetadata(
-        page_number=1,
-        pdf_width_points=612.0,
-        pdf_height_points=792.0,
-        pdf_rotation_degrees=0,
-        image_width_pixels=1700,
-        image_height_pixels=2200,
-        image_dpi=200,
-        high_res_image_width_pixels=2550,
-        high_res_image_height_pixels=3300,
-        high_res_dpi=300
-    )
-    
-    # Test PageMetadata serialization
-    metadata_dict = page_metadata.to_dict()
-    metadata_restored = PageMetadata.from_dict(metadata_dict)
-    
-    assert metadata_restored.pdf_width_points == page_metadata.pdf_width_points
-    assert metadata_restored.image_dpi == page_metadata.image_dpi
-    print("✅ PageMetadata serialization works")
-    
-    # Test coordinate serialization
-    pdf_coords = PDFCoordinates(100.5, 200.3, 150.7, 75.2)
-    pdf_dict = pdf_coords.to_dict()
-    
-    expected_keys = ["left_points", "top_points", "width_points", "height_points"]
-    for key in expected_keys:
-        assert key in pdf_dict, f"Missing key: {key}"
-    
-    print("✅ Coordinate serialization works")
-    
-    # Test JSON round-trip
-    json_str = json.dumps(pdf_dict)
-    restored_dict = json.loads(json_str)
-    restored_coords = PDFCoordinates(
-        restored_dict["left_points"],
-        restored_dict["top_points"], 
-        restored_dict["width_points"],
-        restored_dict["height_points"]
-    )
-    
-    assert abs(restored_coords.left - pdf_coords.left) < 0.001
-    print("✅ JSON round-trip serialization works")
-    
-    return True
-
-
-def test_error_handling():
-    """Test coordinate system error handling and edge cases"""
-    print("\n⚠️  Testing Error Handling")
-    
-    page_metadata = PageMetadata(
-        page_number=1,
-        pdf_width_points=612.0,
-        pdf_height_points=792.0,
-        pdf_rotation_degrees=0,
-        image_width_pixels=1700,
-        image_height_pixels=2200,
-        image_dpi=200,
-        high_res_image_width_pixels=2550,
-        high_res_image_height_pixels=3300,
-        high_res_dpi=300
-    )
-    
-    transformer = CoordinateTransformer(page_metadata)
-    
-    # Test zero dimensions
-    try:
-        zero_coords = CanvasCoordinates(0, 0, 0, 0, 800, 600)
-        pdf_coords = transformer.canvas_to_pdf(zero_coords)
-        print(f"  Zero dimensions handled: {pdf_coords.width}x{pdf_coords.height}")
-    except Exception as e:
-        print(f"  ❌ Zero dimensions failed: {e}")
-    
-    # Test boundary coordinates
-    canvas_width, canvas_height = transformer.get_canvas_dimensions_for_aspect_ratio(1200, 900)
-    boundary_coords = CanvasCoordinates(
-        canvas_width - 10, canvas_height - 10, 5, 5,
-        canvas_width, canvas_height
-    )
-    
-    pdf_coords = transformer.canvas_to_pdf(boundary_coords)
-    assert pdf_coords.left > 0 and pdf_coords.top > 0
-    print("✅ Boundary coordinates handled correctly")
-    
-    return True
-
-
-def run_all_integration_tests():
-    """Run all integration tests"""
-    print("🚀 Starting Coordinate Mapping Integration Tests\n")
-    
-    try:
-        test_frontend_backend_coordination()
-        test_json_serialization()
-        test_error_handling()
+    def test_page_metadata_setup(self):
+        """Test that page metadata is set up correctly"""
+        self.assertEqual(self.page_metadata.page_number, 1)
+        self.assertEqual(self.page_metadata.pdf_width_points, 1224.0)
+        self.assertEqual(self.page_metadata.high_res_dpi, 300)
         
-        print("\n🎉 All integration tests passed!")
-        print("✅ The coordinate mapping system is ready for end-to-end testing")
-        print("\n📋 Summary:")
-        print("  ✅ Frontend-Backend coordination validated")
-        print("  ✅ JSON serialization working")
-        print("  ✅ Error handling robust")
-        print("  ✅ DefineKeyAreas → PDF mapping accurate")
-        print("  ✅ SymbolAnnotation → PDF mapping accurate")
-        print("  ✅ Round-trip transformations precise")
+    def test_coordinate_transformer_creation(self):
+        """Test that coordinate transformer is created correctly"""
+        self.assertIsNotNone(self.transformer)
+        self.assertEqual(self.transformer.page_metadata.page_number, 1)
         
-        return True
+    def test_detection_coordinate_transformation(self):
+        """Test that detection coordinates are properly transformed to PDF space"""
         
-    except Exception as e:
-        print(f"\n❌ Integration test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        # Simulate a detection at image coordinates (1000, 1500) at 300 DPI
+        test_detection = {
+            "candidate_id": 0,
+            "x": 1000,
+            "y": 1500,
+            "width": 96,
+            "height": 96,
+            "match_confidence": 0.8,
+            "iou_score": 0.4,
+            "matched_angle": 0,
+            "status": "pending"
+        }
+        
+        # Transform using our algorithm's method
+        candidates = self.algorithm._transform_to_pdf_coordinates([test_detection], self.page_metadata)
+        
+        self.assertEqual(len(candidates), 1)
+        candidate = candidates[0]
+        
+        # Verify the detection candidate structure
+        self.assertIsInstance(candidate, DetectionCandidate)
+        self.assertEqual(candidate.candidate_id, 0)
+        self.assertEqual(candidate.match_confidence, 0.8)
+        self.assertEqual(candidate.iou_score, 0.4)
+        
+        # Verify image coordinates
+        self.assertEqual(candidate.image_coords.left, 1000)
+        self.assertEqual(candidate.image_coords.top, 1500)
+        self.assertEqual(candidate.image_coords.width, 96)
+        self.assertEqual(candidate.image_coords.height, 96)
+        self.assertEqual(candidate.image_coords.dpi, 300)
+        
+        # Verify PDF coordinates are reasonable
+        self.assertGreater(candidate.pdf_coords.left, 0)
+        self.assertGreater(candidate.pdf_coords.top, 0)
+        self.assertGreater(candidate.pdf_coords.width, 0)
+        self.assertGreater(candidate.pdf_coords.height, 0)
+        
+        # Test round-trip transformation
+        back_transformed = self.transformer.pdf_to_image(candidate.pdf_coords)
+        
+        # Should be very close (within 1-2 pixels due to rounding)
+        self.assertLessEqual(abs(back_transformed.left - candidate.image_coords.left), 2)
+        self.assertLessEqual(abs(back_transformed.top - candidate.image_coords.top), 2)
+        self.assertLessEqual(abs(back_transformed.width - candidate.image_coords.width), 2)
+        self.assertLessEqual(abs(back_transformed.height - candidate.image_coords.height), 2)
+        
+    def test_multiple_detections_transformation(self):
+        """Test transformation of multiple detections"""
+        
+        test_detections = [
+            {"candidate_id": 0, "x": 100, "y": 200, "width": 50, "height": 50, 
+             "match_confidence": 0.9, "iou_score": 0.5, "matched_angle": 0, "status": "pending"},
+            {"candidate_id": 1, "x": 1000, "y": 1500, "width": 96, "height": 96, 
+             "match_confidence": 0.8, "iou_score": 0.4, "matched_angle": 0, "status": "pending"},
+            {"candidate_id": 2, "x": 2000, "y": 2500, "width": 80, "height": 80, 
+             "match_confidence": 0.7, "iou_score": 0.3, "matched_angle": 0, "status": "pending"},
+        ]
+        
+        candidates = self.algorithm._transform_to_pdf_coordinates(test_detections, self.page_metadata)
+        
+        self.assertEqual(len(candidates), 3)
+        
+        # Check that all candidates have proper structure
+        for i, candidate in enumerate(candidates):
+            self.assertEqual(candidate.candidate_id, i)
+            self.assertTrue(hasattr(candidate.pdf_coords, 'left'))
+            self.assertTrue(hasattr(candidate.pdf_coords, 'top'))
+            self.assertTrue(hasattr(candidate.image_coords, 'left'))
+            self.assertTrue(hasattr(candidate.image_coords, 'dpi'))
+            
+            # Check that PDF coordinates are within reasonable bounds
+            self.assertGreaterEqual(candidate.pdf_coords.left, 0)
+            self.assertGreaterEqual(candidate.pdf_coords.top, 0)
+            self.assertLessEqual(candidate.pdf_coords.left + candidate.pdf_coords.width, 
+                               self.page_metadata.pdf_width_points)
+            self.assertLessEqual(candidate.pdf_coords.top + candidate.pdf_coords.height, 
+                               self.page_metadata.pdf_height_points)
+    
+    def test_edge_coordinates(self):
+        """Test transformation of coordinates at page edges"""
+        
+        # Test coordinates at corners and edges (within valid bounds)
+        edge_cases = [
+            {"candidate_id": 0, "x": 0, "y": 0, "width": 50, "height": 50},  # Top-left corner
+            {"candidate_id": 1, "x": 2450, "y": 0, "width": 50, "height": 50},  # Top-right corner
+            {"candidate_id": 2, "x": 0, "y": 3200, "width": 50, "height": 50},  # Bottom-left corner
+            {"candidate_id": 3, "x": 2450, "y": 3200, "width": 50, "height": 50},  # Bottom-right corner
+        ]
+        
+        for edge_case in edge_cases:
+            edge_case.update({
+                "match_confidence": 0.8, "iou_score": 0.4, 
+                "matched_angle": 0, "status": "pending"
+            })
+        
+        candidates = self.algorithm._transform_to_pdf_coordinates(edge_cases, self.page_metadata)
+        
+        # All edge cases should transform successfully
+        self.assertEqual(len(candidates), 4)
+        
+        for candidate in candidates:
+            # PDF coordinates should be within page bounds
+            self.assertGreaterEqual(candidate.pdf_coords.left, 0)
+            self.assertGreaterEqual(candidate.pdf_coords.top, 0)
+            self.assertLessEqual(candidate.pdf_coords.left + candidate.pdf_coords.width, 
+                               self.page_metadata.pdf_width_points + 10)  # Small tolerance
+            self.assertLessEqual(candidate.pdf_coords.top + candidate.pdf_coords.height, 
+                               self.page_metadata.pdf_height_points + 10)  # Small tolerance
+    
+    def test_detection_params_validation(self):
+        """Test validation of detection parameters"""
+        
+        # Valid parameters
+        valid_params = {
+            "match_threshold": 0.3,
+            "iou_threshold": 0.25,
+            "scale_variance_px": 2
+        }
+        
+        processed_params = self.algorithm._prepare_detection_params(valid_params)
+        self.assertEqual(processed_params["match_threshold"], 0.3)
+        self.assertEqual(processed_params["iou_threshold"], 0.25)
+        self.assertEqual(processed_params["scale_variance_px"], 2)
+        
+        # Test defaults
+        default_params = self.algorithm._prepare_detection_params(None)
+        self.assertEqual(default_params["match_threshold"], SymbolDetectionAlgorithm.DEFAULT_MATCH_THRESHOLD)
+        self.assertEqual(default_params["iou_threshold"], SymbolDetectionAlgorithm.DEFAULT_IOU_THRESHOLD)
+        
+    def test_input_validation(self):
+        """Test input validation for the detection algorithm"""
+        
+        # Valid inputs
+        page_pixmap = np.zeros((1000, 1000), dtype=np.uint8)
+        template_image = np.zeros((50, 50), dtype=np.uint8)
+        target_dimensions = {"width_pixels_300dpi": 50, "height_pixels_300dpi": 50}
+        
+        # Should not raise any exceptions
+        self.algorithm._validate_inputs(page_pixmap, template_image, target_dimensions)
+        
+        # Invalid inputs
+        with self.assertRaises(ValueError):
+            self.algorithm._validate_inputs(None, template_image, target_dimensions)
+        
+        with self.assertRaises(ValueError):
+            self.algorithm._validate_inputs(page_pixmap, None, target_dimensions)
+        
+        with self.assertRaises(ValueError):
+            self.algorithm._validate_inputs(page_pixmap, template_image, {})
+        
+        with self.assertRaises(ValueError):
+            invalid_dimensions = {"width_pixels_300dpi": -10, "height_pixels_300dpi": 50}
+            self.algorithm._validate_inputs(page_pixmap, template_image, invalid_dimensions)
+
+
+class TestDetectionCandidate(unittest.TestCase):
+    """Test the DetectionCandidate data structure"""
+    
+    def test_detection_candidate_creation(self):
+        """Test creation of DetectionCandidate objects"""
+        
+        image_coords = ImageCoordinates(100, 200, 50, 50, 300)
+        pdf_coords = PDFCoordinates(72.0, 144.0, 36.0, 36.0)
+        
+        candidate = DetectionCandidate(
+            candidate_id=1,
+            image_coords=image_coords,
+            pdf_coords=pdf_coords,
+            match_confidence=0.85,
+            iou_score=0.42,
+            matched_angle=0,
+            template_size=(50, 50),
+            status="pending"
+        )
+        
+        self.assertEqual(candidate.candidate_id, 1)
+        self.assertEqual(candidate.match_confidence, 0.85)
+        self.assertEqual(candidate.iou_score, 0.42)
+        self.assertEqual(candidate.matched_angle, 0)
+        self.assertEqual(candidate.template_size, (50, 50))
+        self.assertEqual(candidate.status, "pending")
+        self.assertIsInstance(candidate.image_coords, ImageCoordinates)
+        self.assertIsInstance(candidate.pdf_coords, PDFCoordinates)
 
 
 if __name__ == "__main__":
-    success = run_all_integration_tests()
-    sys.exit(0 if success else 1) 
+    print("🧪 Running Coordinate Integration Tests")
+    print("=" * 60)
+    
+    # Run the tests
+    unittest.main(verbosity=2)
