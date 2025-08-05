@@ -311,20 +311,40 @@ def save_symbol_clippings():
                     print(f"       ✅ Saved symbol image: {symbol_path}")
                     print(f"       Image size: {symbol_image.size}")
 
-                    # Calculate symbol dimensions using contour analysis
-                    try:
-                        symbol_dimensions = (
-                            dimension_calculator.calculate_dimensions_from_pdf(
-                                pdf_document, page_number, symbol_pdf_coords
+                    # Generate tight template from the saved symbol image
+                    template_filename = f"{safe_name}_{i}_template.png"
+                    template_path = os.path.join(legend_dir, template_filename)
+                    
+                    template_info = dimension_calculator.generate_tight_template(
+                        symbol_path, template_path
+                    )
+                    
+                    if template_info["success"]:
+                        print(f"       🎯 Generated tight template: {template_path}")
+                        # Use template dimensions for symbol dimensions
+                        symbol_dimensions = template_info["template_dimensions"]
+                        crop_offset = template_info["crop_offset"]
+                    else:
+                        print(f"       ⚠️  Failed to generate tight template, using fallback dimensions")
+                        # Fallback: Calculate symbol dimensions using contour analysis from PDF
+                        try:
+                            symbol_dimensions = (
+                                dimension_calculator.calculate_dimensions_from_pdf(
+                                    pdf_document, page_number, symbol_pdf_coords
+                                )
                             )
-                        )
-                        print(f"       📏 Symbol dimensions: {symbol_dimensions}")
-                    except Exception as e:
-                        print(f"       ⚠️  Failed to calculate symbol dimensions: {e}")
-                        symbol_dimensions = {
-                            "height_pixels_300dpi": 0,
-                            "width_pixels_300dpi": 0,
-                        }
+                            crop_offset = {"left": 0, "top": 0}
+                        except Exception as e:
+                            print(f"       ⚠️  Failed to calculate symbol dimensions: {e}")
+                            symbol_dimensions = {
+                                "height_pixels_300dpi": 0,
+                                "width_pixels_300dpi": 0,
+                            }
+                            crop_offset = {"left": 0, "top": 0}
+                    
+                    print(f"       📏 Symbol dimensions: {symbol_dimensions}")
+                    if crop_offset["left"] > 0 or crop_offset["top"] > 0:
+                        print(f"       📍 Template crop offset: {crop_offset}")
 
                     # Create complete symbol annotation object
                     symbol_annotation = SymbolAnnotation(
@@ -351,6 +371,15 @@ def save_symbol_clippings():
                         "page_number": page_number,
                         "coordinate_system": symbol.get("coordinateSystem", "UNKNOWN"),
                         "symbol_template_dimensions": symbol_dimensions,
+                        # Template information (NEW)
+                        "template_info": {
+                            "template_filename": template_filename,
+                            "template_relative_path": f"symbols/legend_{legend_id}/{template_filename}",
+                            "template_dimensions": symbol_dimensions,  # Same as symbol_template_dimensions for consistency
+                            "crop_offset": crop_offset,
+                            "has_tight_template": template_info["success"],
+                            "original_clipping_path": f"symbols/legend_{legend_id}/{symbol_filename}"
+                        },
                         "frontend_data": {
                             "canvas_coords": {
                                 "left": symbol.get("left"),

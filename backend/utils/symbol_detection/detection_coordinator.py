@@ -337,17 +337,38 @@ class DetectionCoordinator:
     def _load_symbol_template(self, symbol_metadata: Dict[str, Any]) -> np.ndarray:
         """
         Load symbol template image as numpy array.
+        Prioritizes tight template if available, falls back to original clipping.
         
         Args:
-            symbol_metadata: Symbol metadata containing relative path
+            symbol_metadata: Symbol metadata containing template information
             
         Returns:
             Template image as grayscale numpy array
         """
-        template_path = os.path.join(self.doc_dir, symbol_metadata["relative_path"])
+        # Check for tight template first (NEW)
+        template_info = symbol_metadata.get("template_info", {})
+        has_tight_template = template_info.get("has_tight_template", False)
+        
+        if has_tight_template and template_info.get("template_relative_path"):
+            # Use tight template
+            template_path = os.path.join(self.doc_dir, template_info["template_relative_path"])
+            print(f"🎯 Using tight template: {template_path}")
+        else:
+            # Fallback to original clipping
+            template_path = os.path.join(self.doc_dir, symbol_metadata["relative_path"])
+            print(f"📦 Using original clipping: {template_path}")
         
         if not os.path.exists(template_path):
-            raise FileNotFoundError(f"Symbol template not found: {template_path}")
+            # If tight template is missing, try original as fallback
+            if has_tight_template:
+                fallback_path = os.path.join(self.doc_dir, symbol_metadata["relative_path"])
+                if os.path.exists(fallback_path):
+                    template_path = fallback_path
+                    print(f"⚠️ Tight template missing, using original: {template_path}")
+                else:
+                    raise FileNotFoundError(f"Neither tight template nor original clipping found")
+            else:
+                raise FileNotFoundError(f"Symbol template not found: {template_path}")
         
         try:
             # Load using PIL then convert to numpy
