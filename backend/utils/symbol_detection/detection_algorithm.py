@@ -51,8 +51,8 @@ class SymbolDetectionAlgorithm:
     """
     
     # Detection constants (adapted from gem_v5.py)
-    DEFAULT_MATCH_THRESHOLD = 0.30
-    DEFAULT_IOU_THRESHOLD = 0.32
+    DEFAULT_MATCH_THRESHOLD = 0.28
+    DEFAULT_IOU_THRESHOLD = 0.2
     DEFAULT_SCALE_VARIANCE_PX = 2
     DEFAULT_ROTATION_RANGE = (-1, 1)
     DEFAULT_ROTATION_STEP = 1
@@ -163,8 +163,26 @@ class SymbolDetectionAlgorithm:
             "rotation_range": self.DEFAULT_ROTATION_RANGE,
             "rotation_step": self.DEFAULT_ROTATION_STEP
         }
+        
+        # Handle parameter mapping from API (camelCase -> snake_case)
         if detection_params:
-            params.update(detection_params)
+            # Map camelCase API parameters to snake_case internal parameters
+            if "matchThreshold" in detection_params:
+                params["match_threshold"] = detection_params["matchThreshold"]
+            if "iouThreshold" in detection_params:
+                params["iou_threshold"] = detection_params["iouThreshold"]
+            if "scaleVariancePx" in detection_params:
+                params["scale_variance_px"] = detection_params["scaleVariancePx"]
+            if "rotationRange" in detection_params:
+                params["rotation_range"] = detection_params["rotationRange"]
+            if "rotationStep" in detection_params:
+                params["rotation_step"] = detection_params["rotationStep"]
+            
+            # Also allow direct snake_case parameters (for testing/debugging)
+            for key in ["match_threshold", "iou_threshold", "scale_variance_px", "rotation_range", "rotation_step"]:
+                if key in detection_params:
+                    params[key] = detection_params[key]
+        
         return params
     
     def _generate_template_variations(
@@ -197,7 +215,8 @@ class SymbolDetectionAlgorithm:
                 params["rotation_step"]
             ):
                 try:
-                    # Scale template (from gem_v5.py line 143)
+                    # Scale template to exact target size (from gem_v5.py line 144)
+                    # This resizes the template directly to the target variation size
                     scaled_template = cv2.resize(template_image, (scale_width, scale_height))
                     
                     # Rotate template (from gem_v5.py lines 144-149)
@@ -296,11 +315,11 @@ class SymbolDetectionAlgorithm:
                 
                 if is_verified:
                     verified_candidates.append({
-                        "candidate_id": i,
-                        "x": x, "y": y, "width": w, "height": h,
-                        "match_confidence": candidate["confidence"],
-                        "iou_score": iou_score,
-                        "matched_angle": angle,
+                        "candidate_id": int(i),
+                        "x": int(x), "y": int(y), "width": int(w), "height": int(h),
+                        "match_confidence": float(candidate["confidence"]),
+                        "iou_score": float(iou_score),
+                        "matched_angle": int(angle),
                         "status": "pending"
                     })
                     print(f"     ✅ Candidate {i}: conf={candidate['confidence']:.3f}, IoU={iou_score:.3f}")

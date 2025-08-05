@@ -1001,9 +1001,9 @@ def generate_debug_overlay(doc, clipping_results, doc_dir):
 
             # Convert PDF coordinates to image coordinates
             left = pdf_coords["left"] * (200 / 72)  # Scale to 200 DPI
-            top = (page.rect.height - pdf_coords["top"] - pdf_coords["height"]) * (
+            top = (pdf_coords["top"]) * (
                 200 / 72
-            )  # Flip Y and scale
+            )  # DO NOT Flip Y (pymupdf uses top-left origin) and scale
             right = left + (pdf_coords["width"] * (200 / 72))
             bottom = top + (pdf_coords["height"] * (200 / 72))
 
@@ -1048,7 +1048,7 @@ def generate_test_clipping(doc, clipping_results, doc_dir):
     # Use the EXACT same coordinate conversion as the debug overlay
     # Convert PDF coordinates to image coordinates for a 200 DPI test image
     left = pdf_coords["left"] * (200 / 72)  # Scale to 200 DPI
-    top = (pdf_coords["top"] - pdf_coords["height"]) * (200 / 72)
+    top = pdf_coords["top"] * (200 / 72)
     right = left + (pdf_coords["width"] * (200 / 72))
     bottom = top + (pdf_coords["height"] * (200 / 72))
 

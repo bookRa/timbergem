@@ -544,3 +544,41 @@ class DetectionStorage:
         
         # Update runs index
         self._update_runs_index(run_id, run_metadata)
+    
+    def complete_detection_run(self, run_id: str, success: bool = True, final_message: str = None):
+        """
+        Mark a detection run as completed or failed.
+        
+        Args:
+            run_id: Detection run ID
+            success: Whether the detection completed successfully
+            final_message: Optional final status message
+        """
+        run_dir = os.path.join(self.detections_dir, f"run_{run_id}")
+        metadata_file = os.path.join(run_dir, "run_metadata.json")
+        
+        if not os.path.exists(metadata_file):
+            print(f"❌ Run metadata not found for run {run_id}")
+            return
+        
+        with open(metadata_file, 'r') as f:
+            run_metadata = json.load(f)
+        
+        # Update status and completion info
+        end_time = datetime.now(timezone.utc).isoformat()
+        status = "completed" if success else "failed"
+        
+        run_metadata.update({
+            "status": status,
+            "endTime": end_time,
+            "finalMessage": final_message or ("Detection completed successfully" if success else "Detection failed")
+        })
+        
+        # Save updated metadata
+        with open(metadata_file, 'w') as f:
+            json.dump(run_metadata, f, indent=2)
+        
+        # Update runs index
+        self._update_runs_index(run_id, run_metadata)
+        
+        print(f"✅ Detection run {run_id} marked as {status}")

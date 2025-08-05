@@ -7,6 +7,7 @@ import shutil
 
 # --- Configuration ---
 SOURCE_IMAGE_PATH = "page_4.png"
+SOURCE_IMAGE_PATH = "/Users/bigo/Projects/timbergem/data/processed/c1816eba-0d0d-47dc-943e-374b2c12ffb3/page_1/page_1_pixmap.png"
 # TEMPLATE_IMAGE_PATH = "symbol_window.png"
 # TEMPLATE_IMAGE_PATH = "symbol_door.png"
 TEMPLATE_IMAGE_PATH = "symbol_assembly.png"

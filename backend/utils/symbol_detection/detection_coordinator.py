@@ -135,10 +135,20 @@ class DetectionCoordinator:
                     # Load symbol template
                     template_image = self._load_symbol_template(symbol_metadata)
                     
-                    # Detect symbol across all pages
+                    # Use actual template image dimensions as target (like gem_v5.py)
+                    # This preserves template detail and matches gem_v5.py's approach
+                    template_height, template_width = template_image.shape[:2]
+                    actual_template_dimensions = {
+                        "width_pixels_300dpi": template_width,
+                        "height_pixels_300dpi": template_height
+                    }
+                    print(f"   📏 Using actual template dimensions: {template_width}x{template_height} pixels (gem_v5.py approach)")
+                    print(f"   📊 Contour-detected dimensions were: {symbol_metadata['symbol_template_dimensions']['width_pixels_300dpi']}x{symbol_metadata['symbol_template_dimensions']['height_pixels_300dpi']} pixels")
+                    
+                    # Detect symbol across all pages using actual template dimensions
                     symbol_detections = self._detect_symbol_across_pages(
                         pdf_document, template_image, symbol_metadata, page_metadata, 
-                        detection_params, progress
+                        detection_params, progress, actual_template_dimensions
                     )
                     
                     # Save symbol detection results
@@ -146,6 +156,12 @@ class DetectionCoordinator:
                     self.storage.save_symbol_detections(
                         run_id, symbol_id, symbol_metadata, symbol_detections
                     )
+                    
+                    # Create debug overlay image (like gem_v5.py)
+                    if total_detections > 0:
+                        self._create_debug_overlay(
+                            pdf_document, symbol_detections, symbol_metadata, run_id, symbol_id
+                        )
                     
                     progress.complete_symbol_processing(symbol_name, total_detections)
                     
@@ -163,6 +179,7 @@ class DetectionCoordinator:
             
             # 7. Complete detection successfully
             progress.complete_detection(success=True)
+            self.storage.complete_detection_run(run_id, success=True)
             pdf_document.close()
             
             print(f"🎉 Detection run {run_id} completed successfully")
@@ -173,6 +190,7 @@ class DetectionCoordinator:
             error_msg = f"Detection run failed: {str(e)}"
             progress.add_error(error_msg)
             progress.complete_detection(success=False, final_message=error_msg)
+            self.storage.complete_detection_run(run_id, success=False, final_message=error_msg)
             print(f"💥 Critical error: {error_msg}")
             raise
     
@@ -183,7 +201,8 @@ class DetectionCoordinator:
         symbol_metadata: Dict[str, Any], 
         page_metadata: Dict[int, PageMetadata], 
         detection_params: Optional[Dict[str, Any]],
-        progress: DetectionProgress
+        progress: DetectionProgress,
+        template_dimensions: Optional[Dict[str, int]] = None
     ) -> Dict[int, List]:
         """
         Detect a single symbol across all pages.
@@ -195,7 +214,7 @@ class DetectionCoordinator:
             page_metadata: Page metadata for coordinate transformations
             detection_params: Detection algorithm parameters
             progress: Progress tracker
-            
+            template_dimensions: Optional override for template dimensions (uses actual template size)
         Returns:
             Dict mapping page numbers to lists of DetectionCandidate objects
         """
@@ -210,11 +229,14 @@ class DetectionCoordinator:
                 # Load page pixmap at detection DPI (300 DPI)
                 page_pixmap = self._load_page_pixmap(pdf_document, page_num - 1)  # Convert to 0-based
                 
+                # Use actual template dimensions if provided, otherwise fall back to contour-detected dimensions
+                dimensions_to_use = template_dimensions or symbol_metadata["symbol_template_dimensions"]
+                
                 # Run detection on this page
                 page_detections = self.algorithm.detect_symbol_on_page(
                     page_pixmap, 
                     template_image, 
-                    symbol_metadata["symbol_template_dimensions"],
+                    dimensions_to_use,
                     page_meta, 
                     detection_params
                 )
@@ -444,3 +466,75 @@ class DetectionCoordinator:
             True if deleted successfully, False if not found
         """
         return self.storage.delete_detection_run(run_id)
+    
+    def _create_debug_overlay(
+        self, 
+        pdf_document: fitz.Document, 
+        symbol_detections: Dict[int, List], 
+        symbol_metadata: Dict[str, Any], 
+        run_id: str, 
+        symbol_id: str
+    ):
+        """
+        Create debug overlay image showing detected symbols (like gem_v5.py).
+        
+        Args:
+            pdf_document: PyMuPDF document object
+            symbol_detections: Detection results by page
+            symbol_metadata: Symbol metadata
+            run_id: Detection run ID
+            symbol_id: Symbol ID
+        """
+        try:
+            import cv2
+            import numpy as np
+            
+            symbol_name = symbol_metadata["name"]
+            print(f"🎨 Creating debug overlay for {symbol_name}")
+            
+            # Create overlay for each page that has detections
+            for page_num, detections in symbol_detections.items():
+                if not detections:
+                    continue
+                    
+                # Load page pixmap
+                page_pixmap = self._load_page_pixmap(pdf_document, page_num - 1)
+                
+                # Convert to BGR for OpenCV
+                overlay_image = cv2.cvtColor(page_pixmap, cv2.COLOR_GRAY2BGR)
+                
+                # Draw detection rectangles
+                for detection in detections:
+                    x = detection.image_coords.left
+                    y = detection.image_coords.top  
+                    w = detection.image_coords.width
+                    h = detection.image_coords.height
+                    
+                    # Color based on confidence (like gem_v5.py)
+                    if detection.iou_score >= 0.5:
+                        color = (0, 255, 0)  # Green for high confidence
+                    elif detection.iou_score >= 0.2:
+                        color = (0, 165, 255)  # Orange for medium confidence  
+                    else:
+                        color = (0, 0, 255)  # Red for low confidence
+                    
+                    # Draw rectangle
+                    cv2.rectangle(overlay_image, (int(x), int(y)), (int(x + w), int(y + h)), color, 3)
+                    
+                    # Add confidence text
+                    text = f"IoU:{detection.iou_score:.2f}"
+                    cv2.putText(
+                        overlay_image, text, (int(x), int(y - 5)), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2
+                    )
+                
+                # Save overlay image
+                overlay_dir = os.path.join(self.doc_dir, "symbols", "detections", f"run_{run_id}", f"symbol_{symbol_id}")
+                overlay_path = os.path.join(overlay_dir, f"debug_overlay_page_{page_num}.png")
+                
+                cv2.imwrite(overlay_path, overlay_image)
+                print(f"🖼️ Saved debug overlay: {overlay_path}")
+                
+        except Exception as e:
+            print(f"❌ Failed to create debug overlay: {e}")
+            # Don't raise - this is optional debug feature

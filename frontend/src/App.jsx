@@ -3,6 +3,7 @@ import axios from 'axios';
 import './App.css';
 import DefineKeyAreasTab from './components/DefineKeyAreasTab';
 import SymbolAnnotationTab from './components/SymbolAnnotationTab';
+import SymbolReviewTab from './components/SymbolReviewTab';
 import KnowledgeGraphTab from './components/KnowledgeGraphTab';
 import ScopeGroupsTab from './components/ScopeGroupsTab';
 import ScopeAnnotationsTab from './components/ScopeAnnotationsTab';
@@ -43,6 +44,7 @@ function App() {
     const tabs = [
         { id: 'define-key-areas', label: 'Define Key Areas', component: DefineKeyAreasTab },
         { id: 'symbol-annotation', label: 'Symbol Annotation', component: SymbolAnnotationTab },
+        { id: 'symbol-review', label: 'Symbol Review', component: SymbolReviewTab },
         { id: 'html-representations', label: 'HTML Page Representations', component: PDFToHTMLTab },
         { id: 'knowledge-graph', label: 'Knowledge Graph', component: KnowledgeGraphTab },
         { id: 'scope-groups', label: 'Scope Groups', component: ScopeGroupsTab },

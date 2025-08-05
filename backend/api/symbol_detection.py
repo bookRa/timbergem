@@ -26,8 +26,8 @@ def run_symbol_detection():
         "docId": "uuid",
         "symbolIds": ["symbol_uuid_1", "symbol_uuid_2"],  // Optional: specific symbols
         "detectionParams": {
-            "matchThreshold": 0.30,
-            "iouThreshold": 0.32,
+            "matchThreshold": 0.28,
+            "iouThreshold": 0.2,
             "scaleVariancePx": 2,
             "rotationRange": [-1, 1],
             "rotationStep": 1
