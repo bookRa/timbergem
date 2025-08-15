@@ -42,18 +42,11 @@ const SymbolReviewTab = ({
 
     // Load latest results when runs change
     useEffect(() => {
-        console.log('🔄 Detection runs changed:', detectionRuns);
         if (detectionRuns.length > 0) {
             const latestRun = detectionRuns[0];
-            console.log('📊 Latest run:', latestRun);
             if (latestRun.status === 'completed') {
-                console.log('✅ Latest run is completed, loading results...');
                 loadDetectionResults(latestRun.runId);
-            } else {
-                console.log(`⏳ Latest run status: ${latestRun.status}, not loading results yet`);
             }
-        } else {
-            console.log('📭 No detection runs found');
         }
     }, [detectionRuns]);
 
@@ -68,7 +61,6 @@ const SymbolReviewTab = ({
         try {
             setIsLoading(true);
             const response = await axios.get(`/api/detection_runs/${docInfo.docId}`);
-            console.log('📋 Detection runs response:', response.data);
             setDetectionRuns(response.data.runs || []);
         } catch (err) {
             console.error('Failed to load detection runs:', err);
@@ -81,13 +73,10 @@ const SymbolReviewTab = ({
     const loadDetectionResults = async (runId) => {
         try {
             setIsLoading(true);
-            console.log(`🔍 Loading detection results for doc: ${docInfo.docId}, run: ${runId}`);
-            const response = await axios.get(`/api/detection_results/${docInfo.docId}?runId=${runId}`);
-            console.log('✅ Detection results loaded:', response.data);
+            const response = await axios.get(`/api/detection_results/${docInfo.docId}/${runId}`);
             setDetectionResults(response.data);
         } catch (err) {
-            console.error('❌ Failed to load detection results:', err);
-            console.error('Error response:', err.response?.data);
+            console.error('Failed to load detection results:', err);
             setError('Failed to load detection results');
         } finally {
             setIsLoading(false);
@@ -178,20 +167,17 @@ const SymbolReviewTab = ({
         if (!detectionResults?.runId) return;
 
         try {
-            console.log('🔄 Updating detection status:', { detectionId, newStatus, runId: detectionResults.runId });
-            const response = await axios.post('/api/update_detection_status', {
+            await axios.post('/api/update_detection_status', {
                 docId: docInfo.docId,
                 runId: detectionResults.runId,
                 detectionId,
                 status: newStatus
             });
-            console.log('✅ Status update response:', response.data);
 
             // Refresh detection results
             loadDetectionResults(detectionResults.runId);
         } catch (err) {
-            console.error('❌ Failed to update detection status:', err);
-            console.error('Error response:', err.response?.data);
+            console.error('Failed to update detection status:', err);
             setError('Failed to update detection status');
         }
     };
@@ -201,28 +187,18 @@ const SymbolReviewTab = ({
         if (!detectionResults?.runId || !selectedSymbol) return;
 
         try {
-            console.log('➕ Adding detection:', { 
-                pdfCoords, 
-                selectedSymbol, 
-                selectedPage, 
-                runId: detectionResults.runId 
-            });
-            
-            const response = await axios.post('/api/add_user_detection', {
+            await axios.post('/api/add_user_detection', {
                 docId: docInfo.docId,
                 runId: detectionResults.runId,
                 symbolId: selectedSymbol,
                 pdfCoords,
                 pageNumber: selectedPage
             });
-            
-            console.log('✅ Add detection response:', response.data);
 
             // Refresh detection results
             loadDetectionResults(detectionResults.runId);
         } catch (err) {
-            console.error('❌ Failed to add detection:', err);
-            console.error('Error response:', err.response?.data);
+            console.error('Failed to add detection:', err);
             setError('Failed to add detection');
         }
     };

@@ -582,3 +582,206 @@ class DetectionStorage:
         self._update_runs_index(run_id, run_metadata)
         
         print(f"✅ Detection run {run_id} marked as {status}")
+    
+    def load_detection_by_id(self, run_id: str, detection_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Load a specific detection by ID.
+        
+        Args:
+            run_id: Detection run ID
+            detection_id: Specific detection ID
+            
+        Returns:
+            Detection data or None if not found
+        """
+        run_dir = os.path.join(self.detections_dir, f"run_{run_id}")
+        if not os.path.exists(run_dir):
+            return None
+        
+        # Search through all symbol files for the detection
+        for item in os.listdir(run_dir):
+            if item.startswith("symbol_"):
+                symbol_file = os.path.join(run_dir, item, "detections.json")
+                if os.path.exists(symbol_file):
+                    with open(symbol_file, 'r') as f:
+                        symbol_data = json.load(f)
+                    
+                    # Search through all pages for the detection
+                    for page_detections in symbol_data["detectionsByPage"].values():
+                        for detection in page_detections:
+                            if detection["detectionId"] == detection_id:
+                                return detection
+        
+        return None
+    
+    def update_detection_coordinates(self, run_id: str, detection_id: str, 
+                                   pdf_coords: "PDFCoordinates", image_coords: "ImageCoordinates"):
+        """
+        Update detection coordinates from canvas interactions.
+        
+        Args:
+            run_id: Detection run ID
+            detection_id: Detection ID to update
+            pdf_coords: New PDF coordinates
+            image_coords: New image coordinates
+        """
+        run_dir = os.path.join(self.detections_dir, f"run_{run_id}")
+        if not os.path.exists(run_dir):
+            raise ValueError(f"Detection run {run_id} not found")
+        
+        # Find and update the detection
+        updated = False
+        for item in os.listdir(run_dir):
+            if item.startswith("symbol_"):
+                symbol_file = os.path.join(run_dir, item, "detections.json")
+                if os.path.exists(symbol_file):
+                    with open(symbol_file, 'r') as f:
+                        symbol_data = json.load(f)
+                    
+                    # Search and update detection
+                    for page_detections in symbol_data["detectionsByPage"].values():
+                        for detection in page_detections:
+                            if detection["detectionId"] == detection_id:
+                                # Update coordinates
+                                detection["pdfCoords"] = pdf_coords.to_dict()
+                                detection["imageCoords"] = image_coords.to_dict()
+                                detection["isUserModified"] = True
+                                detection["modifiedAt"] = datetime.now(timezone.utc).isoformat()
+                                
+                                # Save updated data
+                                with open(symbol_file, 'w') as f:
+                                    json.dump(symbol_data, f, indent=2)
+                                
+                                updated = True
+                                break
+                    
+                    if updated:
+                        break
+        
+        if not updated:
+            raise ValueError(f"Detection {detection_id} not found in run {run_id}")
+        
+        # Recalculate run summary
+        self._recalculate_run_summary(run_id)
+    
+    def add_user_detection(self, run_id: str, symbol_id: str, pdf_coords: "PDFCoordinates", 
+                          image_coords: "ImageCoordinates", page_number: int) -> str:
+        """
+        Add a new user-created detection.
+        
+        Args:
+            run_id: Detection run ID
+            symbol_id: Symbol ID this detection belongs to
+            pdf_coords: PDF coordinates of the detection
+            image_coords: Image coordinates of the detection  
+            page_number: Page number where detection was added
+            
+        Returns:
+            New detection ID
+        """
+        run_dir = os.path.join(self.detections_dir, f"run_{run_id}")
+        symbol_dir = os.path.join(run_dir, f"symbol_{symbol_id}")
+        symbol_file = os.path.join(symbol_dir, "detections.json")
+        
+        if not os.path.exists(symbol_file):
+            raise ValueError(f"Symbol {symbol_id} not found in run {run_id}")
+        
+        # Load current symbol data
+        with open(symbol_file, 'r') as f:
+            symbol_data = json.load(f)
+        
+        # Generate new detection ID
+        detection_id = f"user_{uuid.uuid4()}"
+        
+        # Create new detection object
+        new_detection = {
+            "detectionId": detection_id,
+            "candidateId": -1,  # User-added marker
+            "imageCoords": image_coords.to_dict(),
+            "pdfCoords": pdf_coords.to_dict(),
+            "matchConfidence": 1.0,  # User confidence
+            "iouScore": 1.0,
+            "matchedAngle": 0,
+            "templateSize": [
+                image_coords.width,
+                image_coords.height
+            ],
+            "status": "pending",
+            "isUserAdded": True,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+            "reviewedAt": None,
+            "reviewedBy": None
+        }
+        
+        # Add to appropriate page
+        page_key = str(page_number)
+        if page_key not in symbol_data["detectionsByPage"]:
+            symbol_data["detectionsByPage"][page_key] = []
+        
+        symbol_data["detectionsByPage"][page_key].append(new_detection)
+        
+        # Update summary
+        symbol_data["summary"]["totalDetections"] += 1
+        symbol_data["summary"]["pendingCount"] += 1
+        
+        # Save updated data
+        with open(symbol_file, 'w') as f:
+            json.dump(symbol_data, f, indent=2)
+        
+        # Recalculate run summary
+        self._recalculate_run_summary(run_id)
+        
+        return detection_id
+    
+    def delete_detection(self, run_id: str, detection_id: str) -> bool:
+        """
+        Delete a detection.
+        
+        Args:
+            run_id: Detection run ID
+            detection_id: Detection ID to delete
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        run_dir = os.path.join(self.detections_dir, f"run_{run_id}")
+        if not os.path.exists(run_dir):
+            return False
+        
+        # Find and delete the detection
+        for item in os.listdir(run_dir):
+            if item.startswith("symbol_"):
+                symbol_file = os.path.join(run_dir, item, "detections.json")
+                if os.path.exists(symbol_file):
+                    with open(symbol_file, 'r') as f:
+                        symbol_data = json.load(f)
+                    
+                    # Search and remove detection
+                    for page_key, page_detections in symbol_data["detectionsByPage"].items():
+                        for i, detection in enumerate(page_detections):
+                            if detection["detectionId"] == detection_id:
+                                # Remove detection
+                                removed_detection = page_detections.pop(i)
+                                
+                                # Update summary
+                                symbol_data["summary"]["totalDetections"] -= 1
+                                
+                                # Update status counts
+                                status = removed_detection.get("status", "pending")
+                                if status == "pending":
+                                    symbol_data["summary"]["pendingCount"] -= 1
+                                elif status == "accepted":
+                                    symbol_data["summary"]["acceptedCount"] -= 1
+                                elif status == "rejected":
+                                    symbol_data["summary"]["rejectedCount"] -= 1
+                                
+                                # Save updated data
+                                with open(symbol_file, 'w') as f:
+                                    json.dump(symbol_data, f, indent=2)
+                                
+                                # Recalculate run summary
+                                self._recalculate_run_summary(run_id)
+                                
+                                return True
+        
+        return False
