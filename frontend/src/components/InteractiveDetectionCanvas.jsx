@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 
-const InteractiveDetectionCanvas = ({ 
-    pageImageUrl, 
-    detections = [], 
+const InteractiveDetectionCanvas = ({
+    pageImageUrl,
+    detections = [],
     templateImage,
     templateDimensions,
     pageMetadata,
@@ -14,6 +14,9 @@ const InteractiveDetectionCanvas = ({
     const canvasRef = useRef(null);
     const containerRef = useRef(null);
     const imageRef = useRef(null);
+
+    const MIN_SCALE = 0.3;
+    const MAX_SCALE = 2.0;
 
     const [canvasState, setCanvasState] = useState({
         scale: 1.0,
@@ -32,7 +35,7 @@ const InteractiveDetectionCanvas = ({
         const img = new Image();
         img.onload = () => {
             imageRef.current = img;
-            setupCanvas(img);
+            fitToContainer(img);
             setCanvasState(prev => ({ ...prev, imageLoaded: true }));
         };
         img.onerror = () => {
@@ -41,55 +44,88 @@ const InteractiveDetectionCanvas = ({
         img.src = pageImageUrl;
     }, [pageImageUrl]);
 
-    // Setup canvas dimensions and scaling
-    const setupCanvas = useCallback((img) => {
+    // Recompute canvas sizing on container or window resize
+    useEffect(() => {
+        const handleResize = () => {
+            if (imageRef.current) {
+                fitToContainer(imageRef.current);
+            }
+        };
+        window.addEventListener('resize', handleResize);
+        let ro;
+        if (containerRef.current) {
+            ro = new ResizeObserver(() => handleResize());
+            ro.observe(containerRef.current);
+        }
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            if (ro) ro.disconnect();
+        };
+    }, []);
+
+    const applyScale = useCallback((img, scale) => {
         const canvas = canvasRef.current;
-        const container = containerRef.current;
-        
-        if (!canvas || !container || !img) return;
+        if (!canvas || !img) return;
 
-        // Get container size - use actual container dimensions with minimal padding
-        const containerRect = container.getBoundingClientRect();
-        const containerWidth = containerRect.width - 24; // Minimal padding (12px each side)
-        const containerHeight = containerRect.height - 80; // Reduced space for controls
+        const clamped = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
+        const canvasWidth = img.width * clamped;
+        const canvasHeight = img.height * clamped;
 
-        // Calculate scale to fit image within container with reasonable sizing
-        const scaleX = containerWidth / img.width;
-        const scaleY = containerHeight / img.height;
-        const scale = Math.min(scaleX, scaleY, 3); // Allow up to 1.5x scaling for better visibility
-
-        // Set canvas size
-        const canvasWidth = img.width * scale;
-        const canvasHeight = img.height * scale;
-        
-        // Debug canvas setup
-        console.log('🎨 Canvas setup:', {
-            scale: scale.toFixed(2),
-            canvasSize: `${canvasWidth.toFixed(0)}×${canvasHeight.toFixed(0)}`
-        });
-        
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
         canvas.style.width = `${canvasWidth}px`;
         canvas.style.height = `${canvasHeight}px`;
 
-        // Update canvas state
         setCanvasState(prev => ({
             ...prev,
-            scale,
+            scale: clamped,
             canvasSize: { width: canvasWidth, height: canvasHeight },
             imageSize: { width: img.width, height: img.height }
         }));
-
-        // Initial render
-        renderCanvas();
+        // Do not call renderCanvas here; the useEffect that depends on renderCanvas will handle drawing
     }, []);
+
+    // Calculate a scale that CONTAINS the image in the container (no scroll by default)
+    const fitToContainer = useCallback((img) => {
+        const canvas = canvasRef.current;
+        const container = containerRef.current;
+        if (!canvas || !container || !img) return;
+
+        const rect = container.getBoundingClientRect();
+        const availableW = Math.max(rect.width - 8, 100); // tighter gutters
+        const controlsEl = container.querySelector('.canvas-controls');
+        const controlsH = controlsEl ? controlsEl.getBoundingClientRect().height : 52;
+        const availableH = Math.max(rect.height - controlsH - 8, 140); // reduce extra vertical padding
+
+        const scaleX = availableW / img.width;
+        const scaleY = availableH / img.height;
+        const fitScale = Math.min(scaleX, scaleY);
+
+        const bounded = Math.max(MIN_SCALE, Math.min(fitScale, 1.5));
+        applyScale(img, bounded);
+    }, [applyScale]);
+
+    // Zoom utilities (ensure they exist and are used by buttons)
+    const handleZoomIn = useCallback(() => {
+        if (!imageRef.current) return;
+        applyScale(imageRef.current, canvasState.scale * 1.2);
+    }, [applyScale, canvasState.scale]);
+
+    const handleZoomOut = useCallback(() => {
+        if (!imageRef.current) return;
+        applyScale(imageRef.current, canvasState.scale / 1.2);
+    }, [applyScale, canvasState.scale]);
+
+    const handleFit = useCallback(() => {
+        if (!imageRef.current) return;
+        fitToContainer(imageRef.current);
+    }, [fitToContainer]);
 
     // Main canvas rendering function
     const renderCanvas = useCallback(() => {
         const canvas = canvasRef.current;
         const img = imageRef.current;
-        
+
         if (!canvas || !img || !canvasState.imageLoaded) return;
 
         const ctx = canvas.getContext('2d');
@@ -97,8 +133,6 @@ const InteractiveDetectionCanvas = ({
 
         // 1. Draw page image as background
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
-        // Canvas is ready and rendering
 
         // 2. Draw detection overlays
         detections.forEach(detection => {
@@ -121,7 +155,7 @@ const InteractiveDetectionCanvas = ({
         // Convert PDF coords to canvas coords
         const canvasCoords = pdfToCanvas(detection.pdfCoords);
         const { x, y, width, height } = canvasCoords;
-        
+
         // Render detection box
 
         // Get styling based on detection status and selection
@@ -133,7 +167,7 @@ const InteractiveDetectionCanvas = ({
         ctx.strokeStyle = style.borderColor;
         ctx.lineWidth = style.borderWidth;
         ctx.fillStyle = style.fillColor;
-        
+
         ctx.fillRect(x, y, width, height);
         ctx.strokeRect(x, y, width, height);
 
@@ -175,10 +209,10 @@ const InteractiveDetectionCanvas = ({
         ctx.lineWidth = 2;
         ctx.fillStyle = 'rgba(0, 123, 255, 0.2)';
         ctx.setLineDash([5, 5]);
-        
+
         ctx.fillRect(x, y, templateSize.width, templateSize.height);
         ctx.strokeRect(x, y, templateSize.width, templateSize.height);
-        
+
         ctx.restore();
     };
 
@@ -186,10 +220,10 @@ const InteractiveDetectionCanvas = ({
     const renderSelectionHandles = (ctx, x, y, width, height) => {
         const handleSize = 8;
         const handles = [
-            { x: x - handleSize/2, y: y - handleSize/2 }, // Top-left
-            { x: x + width - handleSize/2, y: y - handleSize/2 }, // Top-right
-            { x: x - handleSize/2, y: y + height - handleSize/2 }, // Bottom-left
-            { x: x + width - handleSize/2, y: y + height - handleSize/2 }, // Bottom-right
+            { x: x - handleSize / 2, y: y - handleSize / 2 }, // Top-left
+            { x: x + width - handleSize / 2, y: y - handleSize / 2 }, // Top-right
+            { x: x - handleSize / 2, y: y + height - handleSize / 2 }, // Bottom-left
+            { x: x + width - handleSize / 2, y: y + height - handleSize / 2 }, // Bottom-right
         ];
 
         ctx.fillStyle = '#007bff';
@@ -205,7 +239,7 @@ const InteractiveDetectionCanvas = ({
             accepted: { borderColor: '#28a745', fillColor: 'rgba(40,167,69,0.2)' },
             rejected: { borderColor: '#dc3545', fillColor: 'rgba(220,53,69,0.2)' }
         };
-        
+
         const style = styles[status] || styles.pending;
         return {
             ...style,
@@ -296,7 +330,7 @@ const InteractiveDetectionCanvas = ({
         }
 
         // Find clicked detection
-        const clickedDetection = detections.find(det => 
+        const clickedDetection = detections.find(det =>
             isPointInDetection(clickPoint, det)
         );
 
@@ -310,7 +344,7 @@ const InteractiveDetectionCanvas = ({
                     startCoords: pdfToCanvas(clickedDetection.pdfCoords)
                 }
             }));
-            
+
             if (onDetectionSelect) {
                 onDetectionSelect(clickedDetection);
             }
@@ -320,7 +354,7 @@ const InteractiveDetectionCanvas = ({
                 ...prev,
                 selectedDetection: null
             }));
-            
+
             if (onDetectionSelect) {
                 onDetectionSelect(null);
             }
@@ -354,7 +388,7 @@ const InteractiveDetectionCanvas = ({
 
             // Convert to PDF coordinates and update detection
             const newPdfCoords = canvasToPdf(newCanvasCoords);
-            
+
             // Create updated detection for local state
             const updatedDetection = {
                 ...canvasState.selectedDetection,
@@ -374,7 +408,7 @@ const InteractiveDetectionCanvas = ({
         if (canvasState.dragState?.isDragging && canvasState.selectedDetection) {
             // Finalize the drag operation
             const newPdfCoords = canvasState.selectedDetection.pdfCoords;
-            
+
             if (onDetectionUpdate) {
                 onDetectionUpdate(canvasState.selectedDetection.detectionId, newPdfCoords);
             }
@@ -435,7 +469,7 @@ const InteractiveDetectionCanvas = ({
 
     const resetView = () => {
         if (imageRef.current) {
-            setupCanvas(imageRef.current);
+            fitToContainer(imageRef.current);
         }
     };
 
@@ -447,13 +481,13 @@ const InteractiveDetectionCanvas = ({
     return (
         <div ref={containerRef} className="interactive-detection-canvas">
             <div className="canvas-container">
-                <canvas 
+                <canvas
                     ref={canvasRef}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     className="detection-canvas"
-                    style={{ 
+                    style={{
                         cursor: canvasState.isAddingDetection ? 'crosshair' : 'default',
                         border: '1px solid #dee2e6'
                     }}
@@ -465,25 +499,29 @@ const InteractiveDetectionCanvas = ({
                     </div>
                 )}
             </div>
-            
+
             <div className="canvas-controls">
-                <button 
+                <button className="btn" onClick={handleZoomOut}>− Zoom</button>
+                <button className="btn" onClick={handleZoomIn}>+ Zoom</button>
+                <button className="btn btn-secondary" onClick={handleFit}>Fit</button>
+
+                <button
                     className={`btn ${canvasState.isAddingDetection ? 'btn-danger' : 'btn-primary'}`}
                     onClick={canvasState.isAddingDetection ? cancelAddMode : startAddMode}
                     disabled={!templateDimensions}
                 >
                     {canvasState.isAddingDetection ? '✕ Cancel Add' : '+ Add Detection'}
                 </button>
-                
-                <button 
+
+                <button
                     className="btn btn-secondary"
-                    onClick={resetView}
+                    onClick={handleFit}
                 >
                     🔄 Reset View
                 </button>
-                
+
                 {canvasState.selectedDetection && (
-                    <button 
+                    <button
                         className="btn btn-danger"
                         onClick={() => {
                             if (onDetectionDelete) {
@@ -495,9 +533,9 @@ const InteractiveDetectionCanvas = ({
                         🗑️ Delete Selected
                     </button>
                 )}
-                
+
                 <div className="canvas-info">
-                    <span>Scale: {(canvasState.scale * 100).toFixed(1)}%</span>
+                    <span>Scale: {(canvasState.scale * 100).toFixed(0)}%</span>
                     {canvasState.selectedDetection && (
                         <span>Selected: {canvasState.selectedDetection.detectionId?.slice(-6)}</span>
                     )}
