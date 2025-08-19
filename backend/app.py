@@ -106,7 +106,7 @@ def upload_and_process_pdf():
             output_dir = os.path.join(app.config["PROCESSED_FOLDER"], doc_id)
 
             # Create the modular PDF processor
-            pdf_processor = PDFProcessor(dpi=200, high_res_dpi=300)
+            pdf_processor = PDFProcessor(dpi=300, high_res_dpi=300)
 
             # Process the PDF
             processing_results = pdf_processor.process_pdf(
@@ -150,7 +150,7 @@ def upload_and_process_pdf():
                     high_res_dpi=HIGH_RES_DPI,
                 )
 
-                # Create pixmap for this page at standard DPI
+                # Create pixmap for this page at standard DPI (300 DPI)
                 pix = page.get_pixmap(dpi=dpi)
 
                 # Save the page image
@@ -983,8 +983,8 @@ def generate_debug_overlay(doc, clipping_results, doc_dir):
     for page_num, page_results in pages_with_annotations.items():
         page = doc.load_page(page_num - 1)  # fitz uses 0-based indexing
 
-        # Create a high-res image of the full page
-        matrix = fitz.Matrix(200 / 72, 200 / 72)  # 200 DPI
+        # Create a full-page image at standard DPI (300)
+        matrix = fitz.Matrix(300 / 72, 300 / 72)
         pix = page.get_pixmap(matrix=matrix)
 
         # Convert to PIL Image for drawing
@@ -1001,13 +1001,12 @@ def generate_debug_overlay(doc, clipping_results, doc_dir):
             color = colors[i % len(colors)]
             pdf_coords = result["pdfCoords"]
 
-            # Convert PDF coordinates to image coordinates
-            left = pdf_coords["left"] * (200 / 72)  # Scale to 200 DPI
-            top = (pdf_coords["top"]) * (
-                200 / 72
-            )  # DO NOT Flip Y (pymupdf uses top-left origin) and scale
-            right = left + (pdf_coords["width"] * (200 / 72))
-            bottom = top + (pdf_coords["height"] * (200 / 72))
+            # Convert PDF coordinates to image coordinates at 300 DPI
+            scale = 300 / 72.0
+            left = pdf_coords["left"] * scale
+            top = pdf_coords["top"] * scale  # PyMuPDF uses top-left origin
+            right = left + (pdf_coords["width"] * scale)
+            bottom = top + (pdf_coords["height"] * scale)
 
             # Draw rectangle
             draw.rectangle([left, top, right, bottom], outline=color, width=3)
@@ -1048,18 +1047,19 @@ def generate_test_clipping(doc, clipping_results, doc_dir):
     )
 
     # Use the EXACT same coordinate conversion as the debug overlay
-    # Convert PDF coordinates to image coordinates for a 200 DPI test image
-    left = pdf_coords["left"] * (200 / 72)  # Scale to 200 DPI
-    top = pdf_coords["top"] * (200 / 72)
-    right = left + (pdf_coords["width"] * (200 / 72))
-    bottom = top + (pdf_coords["height"] * (200 / 72))
+    # Convert PDF coordinates to image coordinates for a 300 DPI test image
+    scale = 300 / 72.0
+    left = pdf_coords["left"] * scale
+    top = pdf_coords["top"] * scale
+    right = left + (pdf_coords["width"] * scale)
+    bottom = top + (pdf_coords["height"] * scale)
 
     print(
-        f"     Image coords for 200 DPI: ({left:.1f}, {top:.1f}) to ({right:.1f}, {bottom:.1f})"
+        f"     Image coords for 300 DPI: ({left:.1f}, {top:.1f}) to ({right:.1f}, {bottom:.1f})"
     )
 
-    # Create a full page image at 200 DPI
-    matrix = fitz.Matrix(200 / 72, 200 / 72)  # 200 DPI
+    # Create a full page image at 300 DPI
+    matrix = fitz.Matrix(300 / 72, 300 / 72)
     pix = page.get_pixmap(matrix=matrix)
 
     # Convert to PIL Image
