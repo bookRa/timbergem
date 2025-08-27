@@ -39,7 +39,61 @@ function App() {
         scopeAnnotations: {}
     });
 
-    // Remove auto-load TEST document functionality
+    // --- Dev-only preload harness (temporary while revamping UI) ---
+    // Toggle off by visiting with ?dev=off or setting localStorage 'tg-dev-preload-off' = '1'
+    useEffect(() => {
+        const PRELOAD_DOC_ID = '20be5d76-5e4f-43be-9629-00b19fa3849d';
+
+        // Skip if a doc is already loaded
+        if (docInfo) return;
+
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const devOff = params.get('dev') === 'off' || localStorage.getItem('tg-dev-preload-off') === '1';
+            if (devOff) return;
+
+            const preload = async () => {
+                try {
+                    // Load authoritative page metadata for coordinate mapping
+                    const res = await fetch(`/data/processed/${PRELOAD_DOC_ID}/page_metadata.json`);
+                    if (!res.ok) {
+                        console.warn('[DEV PRELOAD] page_metadata.json not found; skipping preload');
+                        return;
+                    }
+                    const meta = await res.json();
+
+                    const pages = meta.pages || {};
+                    const pageNums = Object.keys(pages).map(n => parseInt(n, 10)).sort((a, b) => a - b);
+                    const totalPages = meta.totalPages || pageNums.length || 1;
+
+                    // Establish doc info (used by all tabs) and prevent auto HTML pipeline
+                    setDocInfo({
+                        docId: PRELOAD_DOC_ID,
+                        totalPages: totalPages,
+                        pageMetadata: pages
+                    });
+
+                    // Mark all pixmaps as ready so canvases load immediately
+                    const readyMap = {};
+                    pageNums.forEach(p => { readyMap[p] = 'ready'; });
+                    setPixmapStatus(readyMap);
+                    // Prevent the auto HTML pipeline from kicking off due to all-ready state
+                    setHtmlPipelineTriggered(true);
+
+                    // Load any existing annotations/summaries for this doc
+                    await loadExistingData(PRELOAD_DOC_ID);
+
+                    console.log(`[DEV PRELOAD] Loaded doc ${PRELOAD_DOC_ID} with ${totalPages} pages`);
+                } catch (e) {
+                    console.error('[DEV PRELOAD] Failed to preload document', e);
+                }
+            };
+
+            preload();
+        } catch (e) {
+            // no-op
+        }
+    }, [docInfo]);
 
     const tabs = [
         { id: 'define-key-areas', label: 'Define Key Areas', component: DefineKeyAreasTab },
