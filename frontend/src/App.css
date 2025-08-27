@@ -1324,13 +1324,13 @@ body {
 
 /* Symbol Annotation Tab Styles */
 .symbol-annotation-tab {
-    padding: 30px;
-    max-width: 1400px;
+    padding: 16px 20px;
+    max-width: 1200px;
     margin: 0 auto;
 }
 
 .symbol-annotation-tab .tab-header {
-    margin-bottom: 30px;
+    margin-bottom: 16px;
     text-align: center;
 }
 
@@ -1377,7 +1377,10 @@ body {
 }
 
 .save-section {
-    margin: 20px 0;
+    margin: 12px 0;
+    position: sticky;
+    top: 8px;
+    z-index: 5;
 }
 
 .save-symbols-button {
@@ -1455,7 +1458,7 @@ body {
 .legends-container {
     display: flex;
     flex-direction: column;
-    gap: 40px;
+    gap: 16px;
 }
 
 .symbol-legend-container {
@@ -1464,6 +1467,14 @@ body {
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.symbol-legend-container.collapsed .legend-workspace {
+    display: none;
+}
+
+.symbol-legend-container.collapsed .legend-header {
+    border-bottom: none;
 }
 
 .legend-header {
@@ -1539,43 +1550,40 @@ body {
 .legend-workspace {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    padding: 20px;
-    max-width: 1200px;
-    margin: 0 auto;
+    gap: 16px;
+    padding: 16px;
 }
 
 .legend-image-section {
-    display: flex;
-    gap: 30px;
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: 1fr clamp(320px, 28vw, 420px);
+    gap: 16px;
+    align-items: start;
 }
 
 .legend-image-container {
     position: relative;
-    border: 2px solid #dee2e6;
+    border: 1px solid #dee2e6;
     border-radius: 8px;
-    overflow: visible;
-    background: #f8f9fa;
+    overflow: hidden;
+    background: #fff;
     flex: 1;
-    max-width: 800px;
+    max-width: 720px;
 }
 
 .legend-image {
     display: block;
-    max-width: 100%;
+    width: 100%;
     height: auto;
     cursor: crosshair;
-    position: relative;
-    z-index: 1;
+    pointer-events: none;
 }
 
 .symbol-annotation-canvas {
     position: absolute !important;
-    top: 0;
-    left: 0;
+    inset: 0;
     cursor: crosshair;
-    z-index: 10;
+    z-index: 2;
     pointer-events: auto;
 }
 
@@ -1600,15 +1608,12 @@ body {
 }
 
 .symbols-management-section {
-    flex: 1;
-    min-width: 400px;
-    max-width: 500px;
     display: flex;
     flex-direction: column;
     background: white;
     border: 1px solid #dee2e6;
     border-radius: 8px;
-    padding: 20px;
+    padding: 16px;
 }
 
 .symbols-list-header {
@@ -1669,8 +1674,8 @@ body {
     gap: 12px;
     flex: 1;
     overflow-y: auto;
-    padding-right: 8px;
-    max-height: calc(100vh - 400px);
+    padding-right: 6px;
+    max-height: calc(100vh - 340px);
 }
 
 .symbol-item {
