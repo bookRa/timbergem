@@ -3,7 +3,8 @@ import React from 'react';
 const DetectionDetailsPanel = ({ 
     selectedDetection,
     onStatusUpdate,
-    onDetectionDelete
+    onDetectionDelete,
+    variant = 'standard' // 'standard' | 'compact'
 }) => {
     if (!selectedDetection) {
         return (
@@ -43,17 +44,54 @@ const DetectionDetailsPanel = ({
         }
     };
 
+    if (variant === 'compact') {
+        const gridItem = (label, value, color) => (
+            <div style={{ display: 'grid', gridTemplateRows: 'auto auto', gap: 2 }}>
+                <span style={{ fontSize: 11, color: '#6c757d' }}>{label}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: color || '#212529' }}>{value}</span>
+            </div>
+        );
+
+        return (
+            <div className="detection-details-panel compact" style={{ padding: 0 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+                    {gridItem('ID', selectedDetection.detectionId?.slice(-8) || 'Unknown')}
+                    {gridItem('Status', (selectedDetection.status || 'pending').toUpperCase(), getStatusColor(selectedDetection.status))}
+                    {gridItem('IoU', selectedDetection.iouScore ? `${(selectedDetection.iouScore * 100).toFixed(1)}%` : '—')}
+                    {gridItem('Confidence', selectedDetection.matchConfidence ? `${(selectedDetection.matchConfidence * 100).toFixed(1)}%` : '—')}
+                    {selectedDetection.pdfCoords && gridItem('PDF Pos', `(${selectedDetection.pdfCoords.left_points?.toFixed(1)}, ${selectedDetection.pdfCoords.top_points?.toFixed(1)})`)}
+                    {selectedDetection.pdfCoords && gridItem('PDF Size', `${selectedDetection.pdfCoords.width_points?.toFixed(1)}×${selectedDetection.pdfCoords.height_points?.toFixed(1)} pts`)}
+                    {selectedDetection.templateSize && gridItem('Template Size', `${selectedDetection.templateSize[0]}×${selectedDetection.templateSize[1]} px`)}
+                    {selectedDetection.matchedAngle !== undefined && gridItem('Rotation', `${selectedDetection.matchedAngle}°`)}
+                    {selectedDetection.isUserAdded && gridItem('Source', 'User Added', '#007bff')}
+                </div>
+                <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    {selectedDetection.status !== 'accepted' && (
+                        <button className="btn btn-success" onClick={handleAccept}>✓ Accept</button>
+                    )}
+                    {selectedDetection.status !== 'rejected' && (
+                        <button className="btn btn-warning" onClick={handleReject}>✗ Reject</button>
+                    )}
+                    <button className="btn btn-danger" onClick={handleDelete}>🗑️ Delete</button>
+                </div>
+                {selectedDetection.createdAt && (
+                    <div style={{ marginTop: 4 }}>
+                        <small className="text-muted">Created: {new Date(selectedDetection.createdAt).toLocaleString()}</small>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
     return (
         <div className="detection-details-panel">
             <h4>Detection Details</h4>
-            
             <div className="detection-detail-item">
                 <span className="detection-detail-label">ID:</span>
                 <span className="detection-detail-value">
                     {selectedDetection.detectionId?.slice(-8) || 'Unknown'}
                 </span>
             </div>
-            
             <div className="detection-detail-item">
                 <span className="detection-detail-label">Status:</span>
                 <span 
@@ -63,21 +101,18 @@ const DetectionDetailsPanel = ({
                     {selectedDetection.status?.toUpperCase() || 'PENDING'}
                 </span>
             </div>
-            
             <div className="detection-detail-item">
                 <span className="detection-detail-label">IoU Score:</span>
                 <span className="detection-detail-value">
                     {selectedDetection.iouScore ? `${(selectedDetection.iouScore * 100).toFixed(1)}%` : 'N/A'}
                 </span>
             </div>
-            
             <div className="detection-detail-item">
                 <span className="detection-detail-label">Confidence:</span>
                 <span className="detection-detail-value">
                     {selectedDetection.matchConfidence ? `${(selectedDetection.matchConfidence * 100).toFixed(1)}%` : 'N/A'}
                 </span>
             </div>
-            
             {selectedDetection.pdfCoords && (
                 <>
                     <div className="detection-detail-item">
@@ -86,7 +121,6 @@ const DetectionDetailsPanel = ({
                             ({selectedDetection.pdfCoords.left_points?.toFixed(1)}, {selectedDetection.pdfCoords.top_points?.toFixed(1)})
                         </span>
                     </div>
-                    
                     <div className="detection-detail-item">
                         <span className="detection-detail-label">PDF Size:</span>
                         <span className="detection-detail-value">
@@ -95,7 +129,6 @@ const DetectionDetailsPanel = ({
                     </div>
                 </>
             )}
-            
             {selectedDetection.templateSize && (
                 <div className="detection-detail-item">
                     <span className="detection-detail-label">Template Size:</span>
@@ -104,7 +137,6 @@ const DetectionDetailsPanel = ({
                     </span>
                 </div>
             )}
-            
             {selectedDetection.matchedAngle !== undefined && (
                 <div className="detection-detail-item">
                     <span className="detection-detail-label">Rotation:</span>
@@ -113,7 +145,6 @@ const DetectionDetailsPanel = ({
                     </span>
                 </div>
             )}
-            
             {selectedDetection.isUserAdded && (
                 <div className="detection-detail-item">
                     <span className="detection-detail-label">Source:</span>
@@ -122,7 +153,6 @@ const DetectionDetailsPanel = ({
                     </span>
                 </div>
             )}
-            
             <div className="detection-actions">
                 {selectedDetection.status !== 'accepted' && (
                     <button 
@@ -132,7 +162,6 @@ const DetectionDetailsPanel = ({
                         ✓ Accept Detection
                     </button>
                 )}
-                
                 {selectedDetection.status !== 'rejected' && (
                     <button 
                         className="btn btn-warning"
@@ -141,7 +170,6 @@ const DetectionDetailsPanel = ({
                         ✗ Reject Detection
                     </button>
                 )}
-                
                 <button 
                     className="btn btn-danger"
                     onClick={handleDelete}
@@ -149,7 +177,6 @@ const DetectionDetailsPanel = ({
                     🗑️ Delete Detection
                 </button>
             </div>
-            
             {selectedDetection.createdAt && (
                 <div className="detection-timestamp">
                     <small className="text-muted">

@@ -9,23 +9,31 @@ const InteractiveDetectionCanvas = ({
     onDetectionUpdate,
     onDetectionAdd,
     onDetectionDelete,
-    onDetectionSelect
+    onDetectionSelect,
+    onDetectionStatusUpdate,
+    onRequestDetails
 }) => {
     const canvasRef = useRef(null);
-    const containerRef = useRef(null);
+    // Scrollable viewport that contains the canvas; zoom/pan happen inside this frame
+    const viewportRef = useRef(null);
+    // Backward-compat alias while we transition from old naming
+    const containerRef = viewportRef;
     const imageRef = useRef(null);
 
-    const MIN_SCALE = 0.3;
-    const MAX_SCALE = 2.0;
+    const MIN_SCALE = 0.25;
+    const MAX_SCALE = 3.0;
 
     const [canvasState, setCanvasState] = useState({
         scale: 1.0,
         offset: { x: 0, y: 0 },
         selectedDetection: null,
+        selectedIds: new Set(),
         isAddingDetection: false,
         dragState: null,
         imageLoaded: false,
-        canvasSize: { width: 800, height: 600 }
+        canvasSize: { width: 800, height: 600 },
+        lasso: null, // { x, y, w, h, active }
+        quickReview: false
     });
 
     // Load and setup page image
@@ -85,41 +93,126 @@ const InteractiveDetectionCanvas = ({
         // Do not call renderCanvas here; the useEffect that depends on renderCanvas will handle drawing
     }, []);
 
+    // Zoom keeping the cursor focus stable within the viewport
+    const zoomAtViewportPoint = useCallback((deltaScale, clientX, clientY) => {
+        const img = imageRef.current;
+        const viewport = viewportRef.current;
+        const canvas = canvasRef.current;
+        if (!img || !viewport || !canvas) return;
+
+        const prevScale = canvasState.scale || 1;
+        const nextScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, prevScale * deltaScale));
+        if (nextScale === prevScale) return;
+
+        // Compute cursor position relative to the canvas content
+        const viewportRect = viewport.getBoundingClientRect();
+        const cursorX = clientX - viewportRect.left + viewport.scrollLeft;
+        const cursorY = clientY - viewportRect.top + viewport.scrollTop;
+        const contentX = cursorX / prevScale;
+        const contentY = cursorY / prevScale;
+
+        // Apply new scale (updates canvas size)
+        applyScale(img, nextScale);
+
+        // Maintain the same content point under the cursor
+        const newScrollLeft = contentX * nextScale - (clientX - viewportRect.left);
+        const newScrollTop = contentY * nextScale - (clientY - viewportRect.top);
+        requestAnimationFrame(() => {
+            viewport.scrollLeft = newScrollLeft;
+            viewport.scrollTop = newScrollTop;
+        });
+        // No direct call to renderCanvas here; canvasState changes from applyScale
+        // will trigger the render effect.
+    }, [applyScale, canvasState.scale]);
+
     // Calculate a scale that CONTAINS the image in the container (no scroll by default)
     const fitToContainer = useCallback((img) => {
         const canvas = canvasRef.current;
-        const container = containerRef.current;
-        if (!canvas || !container || !img) return;
+        const viewport = viewportRef.current;
+        if (!canvas || !viewport || !img) return;
 
-        const rect = container.getBoundingClientRect();
-        const availableW = Math.max(rect.width - 8, 100); // tighter gutters
-        const controlsEl = container.querySelector('.canvas-controls');
-        const controlsH = controlsEl ? controlsEl.getBoundingClientRect().height : 52;
-        const availableH = Math.max(rect.height - controlsH - 8, 140); // reduce extra vertical padding
+        const rect = viewport.getBoundingClientRect();
+        const availableW = Math.max(rect.width - 16, 100);
+        const availableH = Math.max(rect.height - 16, 140);
 
         const scaleX = availableW / img.width;
         const scaleY = availableH / img.height;
         const fitScale = Math.min(scaleX, scaleY);
 
-        const bounded = Math.max(MIN_SCALE, Math.min(fitScale, 1.5));
+        const bounded = Math.min(MAX_SCALE, Math.max(MIN_SCALE, fitScale));
         applyScale(img, bounded);
+        requestAnimationFrame(() => {
+            viewport.scrollLeft = 0;
+            viewport.scrollTop = 0;
+        });
     }, [applyScale]);
 
     // Zoom utilities (ensure they exist and are used by buttons)
     const handleZoomIn = useCallback(() => {
-        if (!imageRef.current) return;
-        applyScale(imageRef.current, canvasState.scale * 1.2);
-    }, [applyScale, canvasState.scale]);
+        if (!imageRef.current || !viewportRef.current) return;
+        const vp = viewportRef.current.getBoundingClientRect();
+        zoomAtViewportPoint(1.2, vp.left + vp.width / 2, vp.top + vp.height / 2);
+    }, [zoomAtViewportPoint]);
 
     const handleZoomOut = useCallback(() => {
-        if (!imageRef.current) return;
-        applyScale(imageRef.current, canvasState.scale / 1.2);
-    }, [applyScale, canvasState.scale]);
+        if (!imageRef.current || !viewportRef.current) return;
+        const vp = viewportRef.current.getBoundingClientRect();
+        zoomAtViewportPoint(1/1.2, vp.left + vp.width / 2, vp.top + vp.height / 2);
+    }, [zoomAtViewportPoint]);
 
     const handleFit = useCallback(() => {
         if (!imageRef.current) return;
         fitToContainer(imageRef.current);
     }, [fitToContainer]);
+
+    // Wheel zoom (Cmd/Ctrl + wheel) and trackpad pinch-zoom (often sets ctrlKey)
+    useEffect(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        const onWheel = (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const delta = e.deltaY < 0 ? 1.1 : 1/1.1;
+                zoomAtViewportPoint(delta, e.clientX, e.clientY);
+            }
+        };
+        viewport.addEventListener('wheel', onWheel, { passive: false });
+        return () => viewport.removeEventListener('wheel', onWheel);
+    }, [zoomAtViewportPoint]);
+
+    // Space+drag to pan
+    useEffect(() => {
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        let isPanning = false;
+        let lastX = 0, lastY = 0;
+        const onKeyDown = (e) => { if (e.code === 'Space') viewport.classList.add('panning'); };
+        const onKeyUp = (e) => { if (e.code === 'Space') viewport.classList.remove('panning'); };
+        const onMouseDown = (e) => {
+            if (e.button === 1 || viewport.classList.contains('panning')) {
+                isPanning = true; lastX = e.clientX; lastY = e.clientY; e.preventDefault();
+            }
+        };
+        const onMouseMove = (e) => {
+            if (!isPanning) return;
+            const dx = e.clientX - lastX; const dy = e.clientY - lastY;
+            lastX = e.clientX; lastY = e.clientY;
+            viewport.scrollLeft -= dx; viewport.scrollTop -= dy;
+        };
+        const onMouseUp = () => { isPanning = false; };
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
+        viewport.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        return () => {
+            window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keyup', onKeyUp);
+            viewport.removeEventListener('mousedown', onMouseDown);
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+        };
+    }, []);
 
     // Main canvas rendering function
     const renderCanvas = useCallback(() => {
@@ -159,7 +252,7 @@ const InteractiveDetectionCanvas = ({
         // Render detection box
 
         // Get styling based on detection status and selection
-        const isSelected = canvasState.selectedDetection?.detectionId === detection.detectionId;
+        const isSelected = canvasState.selectedIds.has(detection.detectionId) || canvasState.selectedDetection?.detectionId === detection.detectionId;
         const style = getDetectionStyle(detection.status, isSelected);
 
         // Draw bounding box
@@ -335,9 +428,32 @@ const InteractiveDetectionCanvas = ({
         );
 
         if (clickedDetection) {
+            // Quick-review mode
+            if (canvasState.quickReview) {
+                if (event.altKey) {
+                    onDetectionStatusUpdate && onDetectionStatusUpdate(clickedDetection.detectionId, 'rejected');
+                } else {
+                    onDetectionStatusUpdate && onDetectionStatusUpdate(clickedDetection.detectionId, 'accepted');
+                }
+                return;
+            }
+
+            // Shift+click toggles selection
+            if (event.shiftKey) {
+                setCanvasState(prev => {
+                    const nextSet = new Set(prev.selectedIds);
+                    if (nextSet.has(clickedDetection.detectionId)) nextSet.delete(clickedDetection.detectionId);
+                    else nextSet.add(clickedDetection.detectionId);
+                    return { ...prev, selectedIds: nextSet, selectedDetection: clickedDetection };
+                });
+                onDetectionSelect && onDetectionSelect(clickedDetection);
+                return;
+            }
+
             setCanvasState(prev => ({
                 ...prev,
                 selectedDetection: clickedDetection,
+                selectedIds: new Set([clickedDetection.detectionId]),
                 dragState: {
                     isDragging: true,
                     startPoint: clickPoint,
@@ -349,10 +465,16 @@ const InteractiveDetectionCanvas = ({
                 onDetectionSelect(clickedDetection);
             }
         } else {
+            // Shift+drag lasso to multi-select
+            if (event.shiftKey) {
+                setCanvasState(prev => ({ ...prev, lasso: { x: clickPoint.x, y: clickPoint.y, w: 0, h: 0, active: true }, selectedIds: new Set() }));
+                return;
+            }
             // Clear selection
             setCanvasState(prev => ({
                 ...prev,
-                selectedDetection: null
+                selectedDetection: null,
+                selectedIds: new Set()
             }));
 
             if (onDetectionSelect) {
@@ -371,6 +493,16 @@ const InteractiveDetectionCanvas = ({
                 previewPosition: currentPoint
             }));
             renderCanvas();
+            return;
+        }
+
+        // Lasso update
+        if (canvasState.lasso?.active) {
+            const lx = canvasState.lasso.x;
+            const ly = canvasState.lasso.y;
+            const w = currentPoint.x - lx;
+            const h = currentPoint.y - ly;
+            setCanvasState(prev => ({ ...prev, lasso: { ...prev.lasso, w, h } }));
             return;
         }
 
@@ -405,6 +537,28 @@ const InteractiveDetectionCanvas = ({
     };
 
     const handleMouseUp = (event) => {
+        // Finish lasso selection
+        if (canvasState.lasso?.active) {
+            const { x, y, w, h } = canvasState.lasso;
+            const rect = {
+                left: Math.min(x, x + w),
+                top: Math.min(y, y + h),
+                right: Math.max(x, x + w),
+                bottom: Math.max(y, y + h)
+            };
+            const hits = new Set();
+            detections.forEach(det => {
+                const cc = pdfToCanvas(det.pdfCoords);
+                const dr = { left: cc.x, top: cc.y, right: cc.x + cc.width, bottom: cc.y + cc.height };
+                const overlap = !(dr.left > rect.right || dr.right < rect.left || dr.top > rect.bottom || dr.bottom < rect.top);
+                if (overlap) hits.add(det.detectionId);
+            });
+            const first = detections.find(d => hits.has(d.detectionId)) || null;
+            setCanvasState(prev => ({ ...prev, lasso: null, selectedIds: hits, selectedDetection: first }));
+            onDetectionSelect && onDetectionSelect(first);
+            return;
+        }
+
         if (canvasState.dragState?.isDragging && canvasState.selectedDetection) {
             // Finalize the drag operation
             const newPdfCoords = canvasState.selectedDetection.pdfCoords;
@@ -478,33 +632,223 @@ const InteractiveDetectionCanvas = ({
         renderCanvas();
     }, [renderCanvas]);
 
+    // Derived helpers
+    const getSelectedCanvasRect = () => {
+        if (!canvasState.selectedDetection) return null;
+        const cc = pdfToCanvas(canvasState.selectedDetection.pdfCoords);
+        return { left: cc.x, top: cc.y, width: cc.width, height: cc.height };
+    };
+
+    const isDetectionSelected = (det) => canvasState.selectedIds.has(det.detectionId);
+    const clearSelection = () => setCanvasState(prev => ({ ...prev, selectedIds: new Set(), selectedDetection: null }));
+
+    const orderedDetections = React.useMemo(() => {
+        return [...detections].sort((a, b) => {
+            const ca = a.pdfCoords, cb = b.pdfCoords;
+            if (!ca || !cb) return 0;
+            const ay = ca.top_points, by = cb.top_points;
+            if (Math.abs(ay - by) > 2) return ay - by;
+            return ca.left_points - cb.left_points;
+        });
+    }, [detections]);
+
+    // Keyboard shortcuts: A/R/D for selected or multi-selected detections, arrows to navigate
+    useEffect(() => {
+        const onKeyDown = (e) => {
+            // avoid when typing
+            const tag = (e.target && e.target.tagName) || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+            const sel = canvasState.selectedDetection;
+            if (e.key === 'a' || e.key === 'A') {
+                const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : (sel ? [sel.detectionId] : []);
+                if (ids.length > 0 && onDetectionStatusUpdate) {
+                    Promise.resolve(onDetectionStatusUpdate(ids, 'accepted')).then(() => {
+                        clearSelection();
+                    });
+                }
+            } else if (e.key === 'r' || e.key === 'R') {
+                const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : (sel ? [sel.detectionId] : []);
+                if (ids.length > 0 && onDetectionStatusUpdate) {
+                    Promise.resolve(onDetectionStatusUpdate(ids, 'rejected')).then(() => {
+                        clearSelection();
+                    });
+                }
+            } else if (e.key === 'd' || e.key === 'D') {
+                const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : (sel ? [sel.detectionId] : []);
+                if (ids.length > 0) {
+                    ids.forEach(id => onDetectionDelete && onDetectionDelete(id));
+                    clearSelection();
+                }
+            } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                if (orderedDetections.length === 0) return;
+                e.preventDefault();
+                let idx = orderedDetections.findIndex(d => d.detectionId === sel?.detectionId);
+                idx = (idx + 1 + orderedDetections.length) % orderedDetections.length;
+                const next = orderedDetections[idx];
+                setCanvasState(prev => ({ ...prev, selectedDetection: next, selectedIds: new Set([next.detectionId]) }));
+                onDetectionSelect && onDetectionSelect(next);
+                // center selection
+                const rect = pdfToCanvas(next.pdfCoords);
+                const vp = viewportRef.current; if (vp) {
+                    vp.scrollLeft = Math.max(0, rect.x + rect.width / 2 - vp.clientWidth / 2);
+                    vp.scrollTop = Math.max(0, rect.y + rect.height / 2 - vp.clientHeight / 2);
+                }
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                if (orderedDetections.length === 0) return;
+                e.preventDefault();
+                let idx = orderedDetections.findIndex(d => d.detectionId === sel?.detectionId);
+                idx = (idx - 1 + orderedDetections.length) % orderedDetections.length;
+                const prevDet = orderedDetections[idx];
+                setCanvasState(prev => ({ ...prev, selectedDetection: prevDet, selectedIds: new Set([prevDet.detectionId]) }));
+                onDetectionSelect && onDetectionSelect(prevDet);
+                const rect = pdfToCanvas(prevDet.pdfCoords);
+                const vp = viewportRef.current; if (vp) {
+                    vp.scrollLeft = Math.max(0, rect.x + rect.width / 2 - vp.clientWidth / 2);
+                    vp.scrollTop = Math.max(0, rect.y + rect.height / 2 - vp.clientHeight / 2);
+                }
+            } else if (e.key === 'f' || e.key === 'F') {
+                handleFit();
+            }
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [canvasState.selectedDetection, canvasState.selectedIds, orderedDetections, onDetectionStatusUpdate, onDetectionDelete, onDetectionSelect, handleFit]);
+
     return (
-        <div ref={containerRef} className="interactive-detection-canvas">
-            <div className="canvas-container">
-                <canvas
-                    ref={canvasRef}
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    className="detection-canvas"
-                    style={{
-                        cursor: canvasState.isAddingDetection ? 'crosshair' : 'default',
-                        border: '1px solid #dee2e6'
-                    }}
-                />
+        <div className="interactive-detection-canvas" style={{ position: 'relative' }}>
+            <div
+                ref={viewportRef}
+                className="canvas-viewport"
+                style={{
+                    width: '100%',
+                    height: '72vh',
+                    overflow: 'auto',
+                    border: '1px solid #e9ecef',
+                    background: '#fafafa'
+                }}
+            >
+                <div style={{ position: 'relative', width: canvasState.canvasSize.width, height: canvasState.canvasSize.height, margin: '0 auto' }}>
+                    <canvas
+                        ref={canvasRef}
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        className="detection-canvas"
+                        style={{
+                            cursor: canvasState.isAddingDetection ? 'crosshair' : 'default',
+                            position: 'absolute',
+                            top: 0,
+                            left: 0
+                        }}
+                    />
+
+                    {/* Lasso rectangle overlay */}
+                    {canvasState.lasso?.active && (
+                        (() => {
+                            const lx = canvasState.lasso.x;
+                            const ly = canvasState.lasso.y;
+                            const w = canvasState.lasso.w;
+                            const h = canvasState.lasso.h;
+                            const left = Math.min(lx, lx + w);
+                            const top = Math.min(ly, ly + h);
+                            const width = Math.abs(w);
+                            const height = Math.abs(h);
+                            return (
+                                <div style={{ position: 'absolute', left, top, width, height, border: '1px dashed #0d6efd', background: 'rgba(13,110,253,0.1)', pointerEvents: 'none' }} />
+                            );
+                        })()
+                    )}
+
+                    {/* Contextual action popup near selected detection */}
+                    {canvasState.selectedDetection && (
+                        (() => {
+                            const rect = getSelectedCanvasRect();
+                            if (!rect) return null;
+                            const popupWidth = 180;
+                            const popupLeft = Math.min(Math.max(0, rect.left + rect.width + 8), Math.max(0, canvasState.canvasSize.width - popupWidth - 8));
+                            const popupTop = Math.min(Math.max(0, rect.top), Math.max(0, canvasState.canvasSize.height - 120));
+                            return (
+                                <div
+                                    className="detection-popup"
+                                    style={{
+                                        position: 'absolute',
+                                        left: popupLeft,
+                                        top: popupTop,
+                                        width: popupWidth,
+                                        background: 'rgba(255,255,255,0.95)',
+                                        border: '1px solid #e9ecef',
+                                        borderRadius: 8,
+                                        padding: 8,
+                                        boxShadow: '0 2px 10px rgba(0,0,0,0.08)'
+                                    }}
+                                >
+                                    <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>
+                                        IoU: {(canvasState.selectedDetection.iouScore * 100).toFixed(1)}% · Conf: {(canvasState.selectedDetection.matchConfidence * 100).toFixed(1)}%
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                        <button className="btn btn-success" onClick={() => {
+                                            const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : [canvasState.selectedDetection.detectionId];
+                                            onDetectionStatusUpdate && onDetectionStatusUpdate(ids, 'accepted');
+                                            clearSelection();
+                                        }}>✓ Accept</button>
+                                        <button className="btn btn-warning" onClick={() => {
+                                            const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : [canvasState.selectedDetection.detectionId];
+                                            onDetectionStatusUpdate && onDetectionStatusUpdate(ids, 'rejected');
+                                            clearSelection();
+                                        }}>✗ Reject</button>
+                                        <button className="btn btn-secondary" onClick={() => onRequestDetails && onRequestDetails(canvasState.selectedDetection)}>View Details</button>
+                                    </div>
+                                    <div style={{ marginTop: 6, textAlign: 'right' }}>
+                                        <button className="btn btn-danger" onClick={() => {
+                                            const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : [canvasState.selectedDetection.detectionId];
+                                            ids.forEach(id => onDetectionDelete && onDetectionDelete(id));
+                                        }}>🗑️ Delete</button>
+                                    </div>
+                                </div>
+                            );
+                        })()
+                    )}
+                </div>
                 {!canvasState.imageLoaded && (
-                    <div className="canvas-loading">
+                    <div className="canvas-loading" style={{ padding: 16, textAlign: 'center' }}>
                         <div className="loading-spinner" />
                         <p>Loading page image...</p>
                     </div>
                 )}
             </div>
 
-            <div className="canvas-controls">
-                <button className="btn" onClick={handleZoomOut}>− Zoom</button>
-                <button className="btn" onClick={handleZoomIn}>+ Zoom</button>
+            {/* Floating bottom toolbar */}
+            <div
+                className="canvas-controls"
+                style={{
+                    position: 'absolute',
+                    left: '50%',
+                    bottom: 12,
+                    transform: 'translateX(-50%)',
+                    background: 'rgba(255,255,255,0.9)',
+                    border: '1px solid #e9ecef',
+                    borderRadius: 8,
+                    padding: '6px 10px',
+                    display: 'flex',
+                    gap: 6,
+                    alignItems: 'center',
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.05)'
+                }}
+            >
+                <button className="btn" onClick={handleZoomOut}>−</button>
+                <button className="btn" onClick={handleZoomIn}>+</button>
                 <button className="btn btn-secondary" onClick={handleFit}>Fit</button>
-
+                <div className="canvas-info" style={{ marginLeft: 8, fontSize: 12, color: '#555' }}>
+                    <span>{(canvasState.scale * 100).toFixed(0)}%</span>
+                </div>
+                <div style={{ marginLeft: 12, fontSize: 12, color: '#888' }}>Space+Drag to pan</div>
+                <div style={{ marginLeft: 6, fontSize: 12, color: '#888' }}>Cmd/Ctrl+Wheel to zoom</div>
+                <div style={{ marginLeft: 6, fontSize: 12, color: canvasState.quickReview ? '#0d6efd' : '#888' }}>Quick Review</div>
+                <button className={`btn ${canvasState.quickReview ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setCanvasState(prev => ({ ...prev, quickReview: !prev.quickReview }))}>
+                    {canvasState.quickReview ? 'On' : 'Off'}
+                </button>
+                <div style={{ flex: 1 }} />
                 <button
                     className={`btn ${canvasState.isAddingDetection ? 'btn-danger' : 'btn-primary'}`}
                     onClick={canvasState.isAddingDetection ? cancelAddMode : startAddMode}
@@ -512,14 +856,6 @@ const InteractiveDetectionCanvas = ({
                 >
                     {canvasState.isAddingDetection ? '✕ Cancel Add' : '+ Add Detection'}
                 </button>
-
-                <button
-                    className="btn btn-secondary"
-                    onClick={handleFit}
-                >
-                    🔄 Reset View
-                </button>
-
                 {canvasState.selectedDetection && (
                     <button
                         className="btn btn-danger"
@@ -530,17 +866,20 @@ const InteractiveDetectionCanvas = ({
                             setCanvasState(prev => ({ ...prev, selectedDetection: null }));
                         }}
                     >
-                        🗑️ Delete Selected
+                        🗑️ Delete
                     </button>
                 )}
-
-                <div className="canvas-info">
-                    <span>Scale: {(canvasState.scale * 100).toFixed(0)}%</span>
-                    {canvasState.selectedDetection && (
-                        <span>Selected: {canvasState.selectedDetection.detectionId?.slice(-6)}</span>
-                    )}
-                </div>
             </div>
+
+            {/* Batch selection bar */}
+            {canvasState.selectedIds.size > 1 && (
+                <div style={{ position: 'absolute', left: 12, bottom: 12, background: 'rgba(255,255,255,0.95)', border: '1px solid #e9ecef', borderRadius: 8, padding: '6px 10px', display: 'flex', gap: 8, alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+                    <span style={{ fontSize: 12 }}>{canvasState.selectedIds.size} selected</span>
+                    <button className="btn btn-success" onClick={() => { onDetectionStatusUpdate && onDetectionStatusUpdate(Array.from(canvasState.selectedIds), 'accepted'); clearSelection(); }}>✓ Accept</button>
+                    <button className="btn btn-warning" onClick={() => { onDetectionStatusUpdate && onDetectionStatusUpdate(Array.from(canvasState.selectedIds), 'rejected'); clearSelection(); }}>✗ Reject</button>
+                    <button className="btn btn-secondary" onClick={clearSelection}>Clear</button>
+                </div>
+            )}
         </div>
     );
 };

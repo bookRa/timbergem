@@ -25,6 +25,9 @@ const SymbolReviewTab = ({
     const [viewMode, setViewMode] = useState('canvas'); // 'canvas' | 'list'
     const [statusFilter, setStatusFilter] = useState('all');
     const [confidenceThreshold, setConfidenceThreshold] = useState(0);
+    const [showDetailsPanel, setShowDetailsPanel] = useState(false); // inline details above canvas
+    const [filtersCollapsed, setFiltersCollapsed] = useState(false); // collapsible sticky header
+    const [onlyInViewport, setOnlyInViewport] = useState(false); // placeholder for viewport culling
     
     // Filter settings
     const [filterSettings, setFilterSettings] = useState({
@@ -174,21 +177,41 @@ const SymbolReviewTab = ({
     };
 
     // Handle detection status updates
-    const handleDetectionStatusUpdate = async (detectionId, newStatus) => {
+    const handleDetectionStatusUpdate = async (detectionIdOrIds, newStatus) => {
         if (!detectionResults?.runId) return;
 
         try {
-            console.log('🔄 Updating detection status:', { detectionId, newStatus, runId: detectionResults.runId });
-            const response = await axios.post('/api/update_detection_status', {
-                docId: docInfo.docId,
-                runId: detectionResults.runId,
-                detectionId,
-                status: newStatus
-            });
-            console.log('✅ Status update response:', response.data);
+            const runId = detectionResults.runId;
+            // Support single ID or array of IDs
+            const ids = Array.isArray(detectionIdOrIds) ? detectionIdOrIds : [detectionIdOrIds];
+
+            if (ids.length > 1) {
+                console.log(`🔄 Bulk updating ${ids.length} detection statuses to ${newStatus}`);
+                const updates = ids.map(id => ({
+                    detectionId: id,
+                    action: newStatus === 'accepted' ? 'accept' : newStatus === 'rejected' ? 'reject' : 'pending',
+                    reviewedBy: 'user'
+                }));
+                const response = await axios.post('/api/update_detection_status', {
+                    docId: docInfo.docId,
+                    runId: runId,
+                    updates
+                });
+                console.log('✅ Bulk status update response:', response.data);
+            } else {
+                const detectionId = ids[0];
+                console.log('🔄 Updating detection status:', { detectionId, newStatus, runId });
+                const response = await axios.post('/api/update_detection_status', {
+                    docId: docInfo.docId,
+                    runId: runId,
+                    detectionId,
+                    status: newStatus
+                });
+                console.log('✅ Status update response:', response.data);
+            }
 
             // Refresh detection results
-            loadDetectionResults(detectionResults.runId);
+            loadDetectionResults(runId);
         } catch (err) {
             console.error('❌ Failed to update detection status:', err);
             console.error('Error response:', err.response?.data);
@@ -402,45 +425,111 @@ const SymbolReviewTab = ({
 
                     {viewMode === 'canvas' ? (
                         <div className="symbol-review-canvas-layout">
-                            <div className="canvas-main-area">
-                                {/* Filters and Navigation */}
-                                <SymbolFilterControls
-                                    symbols={getAvailableSymbols()}
-                                    selectedSymbol={selectedSymbol}
-                                    statusFilter={statusFilter}
-                                    confidenceThreshold={confidenceThreshold}
-                                    onSymbolChange={setSelectedSymbol}
-                                    onStatusChange={setStatusFilter}
-                                    onConfidenceChange={setConfidenceThreshold}
-                                />
+                            <div className="canvas-main-area" style={{ position: 'relative' }}>
+                                {/* Sticky, collapsible header above the canvas */}
+                                <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#fff' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderBottom: '1px solid #f1f3f5' }}>
+                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                            <button className="btn btn-secondary" onClick={() => setFiltersCollapsed(v => !v)}>
+                                                {filtersCollapsed ? '▸ Show Filters' : '▾ Hide Filters'}
+                                            </button>
+                                            <div className="chip" style={{ padding: '4px 8px', border: '1px solid #e9ecef', borderRadius: 999, fontSize: 12 }}>
+                                                Reviewed {Math.round(overviewStats.completionPercent)}%
+                                            </div>
+                                            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                                                <input type="checkbox" checked={onlyInViewport} onChange={(e) => setOnlyInViewport(e.target.checked)} />
+                                                Only in viewport
+                                            </label>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            <button className="btn btn-secondary" onClick={() => setSelectedPage(p => Math.max(1, p - 1))}>◀</button>
+                                            <span style={{ fontSize: 12 }}>Page {selectedPage} / {docInfo?.totalPages || 1}</span>
+                                            <button className="btn btn-secondary" onClick={() => setSelectedPage(p => Math.min((docInfo?.totalPages || 1), p + 1))}>▶</button>
+                                        </div>
+                                    </div>
 
-                                <PageNavigationControls
-                                    currentPage={selectedPage}
-                                    totalPages={docInfo?.totalPages || 1}
-                                    onPageChange={setSelectedPage}
-                                    pagesWithDetections={getPagesWithDetections()}
-                                />
+                                    {!filtersCollapsed && (
+                                        <div style={{ paddingTop: 8, paddingBottom: 8 }}>
+                                            <SymbolFilterControls
+                                                symbols={getAvailableSymbols()}
+                                                selectedSymbol={selectedSymbol}
+                                                statusFilter={statusFilter}
+                                                confidenceThreshold={confidenceThreshold}
+                                                onSymbolChange={setSelectedSymbol}
+                                                onStatusChange={setStatusFilter}
+                                                onConfidenceChange={setConfidenceThreshold}
+                                            />
+
+                                            <PageNavigationControls
+                                                currentPage={selectedPage}
+                                                totalPages={docInfo?.totalPages || 1}
+                                                onPageChange={setSelectedPage}
+                                                pagesWithDetections={getPagesWithDetections()}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Details card anchored next to filters in header white space */}
+                                    {showDetailsPanel && selectedDetection && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            right: 0,
+                                            top: 0,
+                                            width: 560,
+                                            background: 'rgba(255,255,255,0.98)',
+                                            border: '1px solid #e9ecef',
+                                            borderRadius: 10,
+                                            boxShadow: '0 6px 20px rgba(0,0,0,0.08)',
+                                            padding: 12,
+                                            zIndex: 20
+                                        }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                                <strong style={{ fontSize: 14 }}>Detection Details</strong>
+                                                <button className="btn btn-secondary" onClick={() => setShowDetailsPanel(false)}>✕</button>
+                                            </div>
+                                            <DetectionDetailsPanel
+                                                selectedDetection={selectedDetection}
+                                                onStatusUpdate={handleDetectionStatusUpdate}
+                                                onDetectionDelete={handleDetectionDelete}
+                                                variant="compact"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
 
                                 {/* Interactive Canvas */}
-                                <InteractiveDetectionCanvas
-                                    pageImageUrl={pageImageUrl}
-                                    detections={getCurrentPageDetections()}
-                                    templateImage={null} // TODO: Load template image
-                                    templateDimensions={selectedSymbol ? getTemplateInfoForSymbol(selectedSymbol)?.dimensions : null}
-                                    pageMetadata={null} // TODO: Load page metadata
-                                    onDetectionUpdate={handleDetectionUpdate}
-                                    onDetectionAdd={handleDetectionAdd}
-                                    onDetectionDelete={handleDetectionDelete}
-                                    onDetectionSelect={setSelectedDetection}
-                                />
+                                <div style={{ position: 'relative' }}>
+                                    <InteractiveDetectionCanvas
+                                        pageImageUrl={pageImageUrl}
+                                        detections={getCurrentPageDetections()}
+                                        templateImage={null} // TODO: Load template image
+                                        templateDimensions={selectedSymbol ? getTemplateInfoForSymbol(selectedSymbol)?.dimensions : null}
+                                        pageMetadata={null} // TODO: Load page metadata
+                                        onDetectionUpdate={handleDetectionUpdate}
+                                        onDetectionAdd={handleDetectionAdd}
+                                        onDetectionDelete={handleDetectionDelete}
+                                        onDetectionSelect={(det) => {
+                                            setSelectedDetection(det);
+                                        }}
+                                        onDetectionStatusUpdate={handleDetectionStatusUpdate}
+                                        onRequestDetails={(det) => {
+                                            setSelectedDetection(det);
+                                            setShowDetailsPanel(true);
+                                        }}
+                                    />
+
+                                    {/* Compact overlay controls (top-right of canvas viewport) */}
+                                    <div style={{ position: 'absolute', right: 12, top: 12, display: 'flex', gap: 8 }}>
+                                        <div className="overlay-pager" style={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #e9ecef', borderRadius: 8, padding: '4px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <button className="btn btn-secondary" onClick={() => setSelectedPage(p => Math.max(1, p - 1))}>◀</button>
+                                            <span style={{ fontSize: 12 }}>Page {selectedPage} / {docInfo?.totalPages || 1}</span>
+                                            <button className="btn btn-secondary" onClick={() => setSelectedPage(p => Math.min((docInfo?.totalPages || 1), p + 1))}>▶</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            {/* Detection Details Panel */}
-                            <DetectionDetailsPanel
-                                selectedDetection={selectedDetection}
-                                onStatusUpdate={handleDetectionStatusUpdate}
-                                onDetectionDelete={handleDetectionDelete}
-                            />
+                            {/* Removed large side panel to keep canvas priority */}
                         </div>
                     ) : (
                         <div className="review-content-list">
