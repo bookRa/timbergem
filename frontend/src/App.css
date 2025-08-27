@@ -189,6 +189,8 @@ body {
 .define-key-areas-tab {
     display: flex;
     height: calc(100vh - 140px);
+    min-width: 0;
+    /* allow children to shrink and not force overflow */
 }
 
 /* Sidebar */
@@ -201,6 +203,35 @@ body {
     display: flex;
     flex-direction: column;
     gap: 30px;
+}
+
+.sidebar.collapsed {
+    width: 56px;
+    padding: 12px 8px;
+    gap: 12px;
+}
+
+.sidebar-header {
+    position: sticky;
+    top: 0;
+    background: #f8f9fa;
+    padding-bottom: 8px;
+    z-index: 2;
+}
+
+.sidebar-toggle {
+    width: 100%;
+    padding: 8px 10px;
+    background: #e9ecef;
+    color: #1a2a4c;
+    border: 1px solid #dfe3e8;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.sidebar.collapsed .sidebar-header .generate-button {
+    display: none;
 }
 
 .sidebar h3 {
@@ -217,6 +248,13 @@ body {
 .annotation-list {
     flex: 1;
     overflow-y: auto;
+}
+
+.sidebar.collapsed .annotation-list,
+.sidebar.collapsed h3,
+.sidebar.collapsed .annotation-item,
+.sidebar.collapsed .generate-section {
+    display: none;
 }
 
 .page-annotations {
@@ -316,7 +354,12 @@ body {
     flex: 1;
     padding: 20px;
     overflow-y: auto;
+    /* vertical scroll for multi-page */
+    overflow-x: hidden;
+    /* prevent horizontal scroll at this level */
     background: white;
+    min-width: 0;
+    /* allow content to shrink without forcing horizontal cut */
 }
 
 /* Page content - Full height for single page view */
@@ -324,7 +367,8 @@ body {
     margin-bottom: 20px;
     border: 1px solid #e1e5e9;
     border-radius: 8px;
-    overflow: hidden;
+    overflow: visible;
+    /* allow horizontal scrolling when canvas is wider */
     background: white;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
     /* Make each page take full available height */
@@ -338,11 +382,34 @@ body {
     padding: 15px 20px;
     border-bottom: 1px solid #e1e5e9;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .page-header h3 {
     color: #1a2a4c;
     font-size: 1.3rem;
+}
+
+.page-header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.page-header-actions .label {
+    color: #6c757d;
+    font-size: 0.9rem;
+    margin-right: 2px;
 }
 
 /* Page layout - Fill remaining height */
@@ -356,9 +423,9 @@ body {
 }
 
 /* Page summary */
+/* Page summary removed from this tab for now */
 .page-summary {
-    width: 250px;
-    flex-shrink: 0;
+    display: none;
 }
 
 .page-summary h4 {
@@ -427,14 +494,15 @@ body {
     align-items: flex-start;
     min-height: 0;
     /* Important for flex item */
+    overflow: auto;
+    /* allow scroll if canvas exceeds width at 100% */
 }
 
 .page-canvas {
     border: 1px solid #e1e5e9;
     border-radius: 6px;
-    max-width: 100%;
-    max-height: 100%;
     height: auto;
+    /* Do not constrain width; let container scroll horizontally */
 }
 
 /* Page sections */
@@ -2108,5 +2176,3 @@ body {
     align-items: flex-start;
     justify-content: flex-start;
 }
-
-/* --- End Symbol Review overrides --- */

@@ -1,22 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { fabric } from 'fabric';
-import { 
-    CoordinateTransformer, 
-    CanvasCoordinates, 
+import {
+    CoordinateTransformer,
+    CanvasCoordinates,
     PDFCoordinates,
-    createPageMetadata, 
-    getOptimalCanvasDimensions 
+    createPageMetadata,
+    getOptimalCanvasDimensions
 } from '../utils/coordinateMapping';
 
-const DefineKeyAreasTab = ({ 
-    docInfo, 
-    allAnnotations, 
-    pageSummaries, 
-    onAnnotationsChange, 
-    onSummaryChange, 
+const DefineKeyAreasTab = ({
+    docInfo,
+    allAnnotations,
+    pageSummaries,
+    onAnnotationsChange,
+    onSummaryChange,
     onSaveData,
     pixmapStatus = {},
-    onPixmapCheck = () => {}
+    onPixmapCheck = () => { }
 }) => {
     const [selectedTool, setSelectedTool] = useState(null);
     const [isDrawing, setIsDrawing] = useState(false);
@@ -26,7 +26,8 @@ const DefineKeyAreasTab = ({
     const [editingSummary, setEditingSummary] = useState({});
     const [selectedAnnotation, setSelectedAnnotation] = useState(null); // Track selected annotation
     const [canvasDimensions, setCanvasDimensions] = useState({}); // Track canvas dimensions for coordinate mapping
-    
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // Collapse/expand sidebar
+
     // Use refs to store current state for event handlers
     const stateRef = useRef({ selectedTool: null, isDrawing: false, drawingPage: null });
 
@@ -46,27 +47,27 @@ const DefineKeyAreasTab = ({
                     const legacyImageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}.png`;
                     fabric.Image.fromURL(legacyImageUrl, (img) => {
                         if (!canvas || canvas._disposed) return;
-                        
+
                         console.log(`🖼️  [DefineKeyAreas] Image loaded for page ${pageNumber}: ${img.width}x${img.height}`);
-                        
+
                         // Use new coordinate system for canvas sizing
                         let scale;
                         if (docInfo?.pageMetadata?.[pageNumber]) {
                             const pageMetadata = createPageMetadata(docInfo.pageMetadata[pageNumber]);
                             const transformer = new CoordinateTransformer(pageMetadata);
                             const canvasDims = transformer.getCanvasDimensionsForAspectRatio(1200, 900);
-                            
+
                             console.log(`📐 [DefineKeyAreas] NEW coordinate system for page ${pageNumber}:`);
                             console.log(`    PDF: ${pageMetadata.pdfWidthPoints}x${pageMetadata.pdfHeightPoints} points`);
                             console.log(`    Image: ${pageMetadata.imageWidthPixels}x${pageMetadata.imageHeightPixels} pixels @ ${pageMetadata.imageDpi} DPI`);
                             console.log(`    Canvas: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} pixels`);
-                            
+
                             scale = Math.min(canvasDims.width / img.width, canvasDims.height / img.height);
-                            
+
                             img.scale(scale);
                             canvas.setWidth(canvasDims.width);
                             canvas.setHeight(canvasDims.height);
-                            
+
                             setCanvasDimensions(prev => ({
                                 ...prev,
                                 [pageNumber]: {
@@ -77,7 +78,7 @@ const DefineKeyAreasTab = ({
                                     transformer: transformer
                                 }
                             }));
-                            
+
                             console.log(`✅ [DefineKeyAreas] Canvas ${pageNumber} sized using NEW system: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} (scale: ${scale.toFixed(4)})`);
                         } else {
                             // Fallback to old system if metadata not available
@@ -85,9 +86,9 @@ const DefineKeyAreasTab = ({
                             const imageAspectRatio = img.width / img.height;
                             const maxCanvasWidth = 1200;
                             const maxCanvasHeight = 900;
-                            
+
                             let actualCanvasWidth, actualCanvasHeight;
-                            
+
                             if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
                                 actualCanvasWidth = maxCanvasWidth;
                                 actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
@@ -97,11 +98,11 @@ const DefineKeyAreasTab = ({
                                 actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
                                 scale = maxCanvasHeight / img.height;
                             }
-                            
+
                             img.scale(scale);
                             canvas.setWidth(actualCanvasWidth);
                             canvas.setHeight(actualCanvasHeight);
-                            
+
                             setCanvasDimensions(prev => ({
                                 ...prev,
                                 [pageNumber]: {
@@ -110,15 +111,15 @@ const DefineKeyAreasTab = ({
                                     scale: scale
                                 }
                             }));
-                            
+
                             console.log(`📊 [DefineKeyAreas] Canvas ${pageNumber} sized using FALLBACK: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)} (scale: ${scale.toFixed(4)})`);
                         }
-                        
+
                         canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
                             scaleX: scale,
                             scaleY: scale
                         });
-                        
+
                         console.log(`✅ [DefineKeyAreas] Background loaded for page ${pageNumber}`);
                     }, { crossOrigin: 'anonymous' });
                 }
@@ -136,11 +137,11 @@ const DefineKeyAreasTab = ({
     useEffect(() => {
         let attempts = 0;
         const maxAttempts = 10; // Increased from 5
-        
+
         const initializeAllCanvases = () => {
             attempts++;
             console.log(`Canvas initialization attempt ${attempts}`);
-            
+
             let successCount = 0;
             for (let pageNum = 1; pageNum <= docInfo.totalPages; pageNum++) {
                 const canvasElement = document.getElementById(`canvas-${pageNum}`);
@@ -149,15 +150,15 @@ const DefineKeyAreasTab = ({
                     successCount++;
                 }
             }
-            
+
             console.log(`Initialized ${successCount} canvases on attempt ${attempts}`);
-            
+
             // Retry if not all canvases were initialized and we haven't exceeded max attempts
             if (successCount < docInfo.totalPages && attempts < maxAttempts) {
                 setTimeout(initializeAllCanvases, 200); // Reduced delay for faster retry
             }
         };
-        
+
         // Start initialization after a shorter delay
         const timer = setTimeout(initializeAllCanvases, 100); // Reduced from 300ms
 
@@ -173,12 +174,12 @@ const DefineKeyAreasTab = ({
     const initializeCanvas = (pageNumber) => {
         const canvasId = `canvas-${pageNumber}`;
         const canvasElement = document.getElementById(canvasId);
-        
+
         if (!canvasElement) {
             console.log(`Canvas element not found for page ${pageNumber}`);
             return;
         }
-        
+
         if (fabricCanvases[pageNumber]) {
             console.log(`Canvas already exists for page ${pageNumber}`);
             return;
@@ -213,33 +214,33 @@ const DefineKeyAreasTab = ({
 
         // Load background image - try legacy format first, then high-res pixmap
         const legacyImageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}.png`;
-        
+
         fabric.Image.fromURL(legacyImageUrl, (img) => {
             if (!canvas || canvas._disposed) return;
-            
+
             console.log(`🖼️  [DefineKeyAreas] Initializing canvas ${pageNumber} - Image: ${img.width}x${img.height}`);
-            
+
             // Use new coordinate system for canvas sizing
             let scale;
             if (docInfo?.pageMetadata?.[pageNumber]) {
                 const pageMetadata = createPageMetadata(docInfo.pageMetadata[pageNumber]);
                 const transformer = new CoordinateTransformer(pageMetadata);
                 const canvasDims = transformer.getCanvasDimensionsForAspectRatio(1200, 900);
-                
+
                 console.log(`📐 [DefineKeyAreas] NEW coordinate system for canvas ${pageNumber}:`);
                 console.log(`    PDF: ${pageMetadata.pdfWidthPoints}x${pageMetadata.pdfHeightPoints} points`);
                 console.log(`    Image: ${pageMetadata.imageWidthPixels}x${pageMetadata.imageHeightPixels} pixels @ ${pageMetadata.imageDpi} DPI`);
                 console.log(`    Canvas: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} pixels`);
-                
+
                 scale = Math.min(canvasDims.width / img.width, canvasDims.height / img.height);
-                
+
                 // Scale the image to match canvas
                 img.scale(scale);
-                
+
                 // Set canvas to exact calculated dimensions
                 canvas.setWidth(canvasDims.width);
                 canvas.setHeight(canvasDims.height);
-                
+
                 // Store enhanced canvas dimensions with coordinate transformer
                 setCanvasDimensions(prev => ({
                     ...prev,
@@ -251,7 +252,7 @@ const DefineKeyAreasTab = ({
                         transformer: transformer
                     }
                 }));
-                
+
                 console.log(`✅ [DefineKeyAreas] Canvas ${pageNumber} initialized with NEW system: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} (scale: ${scale.toFixed(4)})`);
             } else {
                 // Fallback to old system if metadata not available
@@ -259,9 +260,9 @@ const DefineKeyAreasTab = ({
                 const imageAspectRatio = img.width / img.height;
                 const maxCanvasWidth = 1200;
                 const maxCanvasHeight = 900;
-                
+
                 let actualCanvasWidth, actualCanvasHeight;
-                
+
                 if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
                     actualCanvasWidth = maxCanvasWidth;
                     actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
@@ -271,11 +272,11 @@ const DefineKeyAreasTab = ({
                     actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
                     scale = maxCanvasHeight / img.height;
                 }
-                
+
                 img.scale(scale);
                 canvas.setWidth(actualCanvasWidth);
                 canvas.setHeight(actualCanvasHeight);
-                
+
                 setCanvasDimensions(prev => ({
                     ...prev,
                     [pageNumber]: {
@@ -284,43 +285,43 @@ const DefineKeyAreasTab = ({
                         scale: scale
                     }
                 }));
-                
+
                 console.log(`📊 [DefineKeyAreas] Canvas ${pageNumber} initialized with FALLBACK: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)} (scale: ${scale.toFixed(4)})`);
             }
-            
+
             canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
                 scaleX: scale,
                 scaleY: scale
             });
         }, (error) => {
             console.log(`Failed to load legacy image for page ${pageNumber}, trying high-res pixmap`);
-            
+
             // Try high-res pixmap format
             const pixmapImageUrl = `/data/processed/${docInfo.docId}/page_${pageNumber}/page_${pageNumber}_pixmap.png`;
-            
+
             fabric.Image.fromURL(pixmapImageUrl, (img) => {
                 if (!canvas || canvas._disposed) return;
-                
+
                 console.log(`🖼️  [DefineKeyAreas] High-res pixmap loaded for canvas ${pageNumber}: ${img.width}x${img.height}`);
-                
+
                 // Use new coordinate system for high-res pixmap sizing
                 let scale;
                 if (docInfo?.pageMetadata?.[pageNumber]) {
                     const pageMetadata = createPageMetadata(docInfo.pageMetadata[pageNumber]);
                     const transformer = new CoordinateTransformer(pageMetadata);
                     const canvasDims = transformer.getCanvasDimensionsForAspectRatio(1200, 900);
-                    
+
                     console.log(`📐 [DefineKeyAreas] High-res coordinate system for canvas ${pageNumber}:`);
                     console.log(`    PDF: ${pageMetadata.pdfWidthPoints}x${pageMetadata.pdfHeightPoints} points`);
                     console.log(`    Image: ${pageMetadata.imageWidthPixels}x${pageMetadata.imageHeightPixels} pixels @ ${pageMetadata.imageDpi} DPI`);
                     console.log(`    Canvas: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} pixels`);
-                    
+
                     scale = Math.min(canvasDims.width / img.width, canvasDims.height / img.height);
-                    
+
                     img.scale(scale);
                     canvas.setWidth(canvasDims.width);
                     canvas.setHeight(canvasDims.height);
-                    
+
                     setCanvasDimensions(prev => ({
                         ...prev,
                         [pageNumber]: {
@@ -331,7 +332,7 @@ const DefineKeyAreasTab = ({
                             transformer: transformer
                         }
                     }));
-                    
+
                     console.log(`✅ [DefineKeyAreas] High-res canvas ${pageNumber} sized with NEW system: ${canvasDims.width.toFixed(1)}x${canvasDims.height.toFixed(1)} (scale: ${scale.toFixed(4)})`);
                 } else {
                     // Fallback to old system
@@ -339,9 +340,9 @@ const DefineKeyAreasTab = ({
                     const imageAspectRatio = img.width / img.height;
                     const maxCanvasWidth = 1200;
                     const maxCanvasHeight = 900;
-                    
+
                     let actualCanvasWidth, actualCanvasHeight;
-                    
+
                     if (imageAspectRatio > (maxCanvasWidth / maxCanvasHeight)) {
                         actualCanvasWidth = maxCanvasWidth;
                         actualCanvasHeight = maxCanvasWidth / imageAspectRatio;
@@ -351,11 +352,11 @@ const DefineKeyAreasTab = ({
                         actualCanvasWidth = maxCanvasHeight * imageAspectRatio;
                         scale = maxCanvasHeight / img.height;
                     }
-                    
+
                     img.scale(scale);
                     canvas.setWidth(actualCanvasWidth);
                     canvas.setHeight(actualCanvasHeight);
-                    
+
                     setCanvasDimensions(prev => ({
                         ...prev,
                         [pageNumber]: {
@@ -364,17 +365,17 @@ const DefineKeyAreasTab = ({
                             scale: scale
                         }
                     }));
-                    
+
                     console.log(`📊 [DefineKeyAreas] High-res canvas ${pageNumber} sized with FALLBACK: ${actualCanvasWidth.toFixed(1)}x${actualCanvasHeight.toFixed(1)} (scale: ${scale.toFixed(4)})`);
                 }
-                
+
                 canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas), {
                     scaleX: scale,
                     scaleY: scale
                 });
             }, (pixmapError) => {
                 console.error(`Failed to load both legacy and high-res images for page ${pageNumber}:`, error, pixmapError);
-                
+
                 // Even without background image, store canvas dimensions for annotations to work
                 setCanvasDimensions(prev => ({
                     ...prev,
@@ -412,7 +413,7 @@ const DefineKeyAreasTab = ({
                 canvas.add(rect);
             }
         });
-        
+
         console.log(`Canvas ${pageNumber} initialized and interactions set up`);
     };
 
@@ -427,26 +428,26 @@ const DefineKeyAreasTab = ({
         canvas.on('mouse:down', (o) => {
             // Get current state from ref
             const { selectedTool: currentTool, isDrawing: currentDrawing, drawingPage: currentDrawingPage } = stateRef.current;
-            
+
             console.log(`Canvas ${pageNumber} clicked`);
             console.log('Current state from ref:', { currentTool, currentDrawing, currentDrawingPage });
-            
+
             // Only allow drawing if we're in drawing mode AND this is the correct page
             if (!currentTool || !currentDrawing || currentDrawingPage !== pageNumber) {
                 console.log(`Canvas click blocked for page ${pageNumber}`);
                 return;
             }
-            
+
             console.log(`Starting to draw ${currentTool} on page ${pageNumber}`);
-            
+
             isDown = true;
             const pointer = canvas.getPointer(o.e);
             origX = pointer.x;
             origY = pointer.y;
-            
+
             const tool = annotationTools.find(t => t.id === currentTool);
             if (!tool) return;
-            
+
             rect = new fabric.Rect({
                 left: origX,
                 top: origY,
@@ -465,7 +466,7 @@ const DefineKeyAreasTab = ({
                 annotationTag: currentTool,
                 annotationId: `${Date.now()}-${pageNumber}`
             });
-            
+
             canvas.add(rect);
             canvas.setActiveObject(rect);
             canvas.requestRenderAll();
@@ -473,31 +474,31 @@ const DefineKeyAreasTab = ({
 
         canvas.on('mouse:move', (o) => {
             if (!isDown || !rect) return;
-            
+
             const pointer = canvas.getPointer(o.e);
-            
+
             // Calculate the rectangle dimensions
             const left = Math.min(origX, pointer.x);
             const top = Math.min(origY, pointer.y);
             const width = Math.abs(origX - pointer.x);
             const height = Math.abs(origY - pointer.y);
-            
-            rect.set({ 
+
+            rect.set({
                 left: left,
                 top: top,
-                width: width, 
-                height: height 
+                width: width,
+                height: height
             });
-            
+
             canvas.requestRenderAll();
         });
 
         canvas.on('mouse:up', () => {
             if (!isDown) return;
             isDown = false;
-            
+
             console.log('Mouse up - finishing annotation');
-            
+
             // Only finish drawing if we actually created a meaningful rectangle
             if (rect && (rect.width > 10 && rect.height > 10)) {
                 console.log('Creating annotation with dimensions:', rect.width, 'x', rect.height);
@@ -508,7 +509,7 @@ const DefineKeyAreasTab = ({
                 // Remove tiny rectangles
                 canvas.remove(rect);
             }
-            
+
             // Reset drawing state
             rect = null;
             setIsDrawing(false);
@@ -557,23 +558,23 @@ const DefineKeyAreasTab = ({
                 height: obj.height * obj.scaleY,
                 pageNumber: pageNumber
             }));
-        
+
         onAnnotationsChange(pageNumber, annotations);
     };
 
     const startDrawing = (toolId, pageNumber) => {
         console.log(`Starting drawing mode: ${toolId} on page ${pageNumber}`);
-        
+
         // Ensure canvas exists before starting drawing
         const canvas = fabricCanvases[pageNumber];
         if (!canvas) {
             console.log(`Canvas not ready for page ${pageNumber}, attempting to initialize`);
-            
+
             // Try to initialize the canvas if it doesn't exist
             const canvasElement = document.getElementById(`canvas-${pageNumber}`);
             if (canvasElement) {
                 initializeCanvas(pageNumber);
-                
+
                 // Wait a bit for initialization then try again
                 setTimeout(() => {
                     const retryCanvas = fabricCanvases[pageNumber];
@@ -582,7 +583,7 @@ const DefineKeyAreasTab = ({
                         setSelectedTool(toolId);
                         setIsDrawing(true);
                         setDrawingPage(pageNumber);
-                        
+
                         retryCanvas.discardActiveObject();
                         retryCanvas.renderAll();
                     } else {
@@ -590,7 +591,7 @@ const DefineKeyAreasTab = ({
                         alert(`Canvas not ready for page ${pageNumber}. Please try again in a moment.`);
                     }
                 }, 300);
-                
+
                 return;
             } else {
                 console.error(`Canvas element not found for page ${pageNumber}`);
@@ -598,12 +599,12 @@ const DefineKeyAreasTab = ({
                 return;
             }
         }
-        
+
         // Canvas exists, proceed with drawing
         setSelectedTool(toolId);
         setIsDrawing(true);
         setDrawingPage(pageNumber);
-        
+
         // Focus on the specific page canvas
         canvas.discardActiveObject();
         canvas.renderAll();
@@ -618,7 +619,7 @@ const DefineKeyAreasTab = ({
         if (objectToRemove) {
             canvas.remove(objectToRemove);
             updateAnnotationsFromCanvas(canvas, pageNumber);
-            
+
             // Clear selection if the deleted annotation was selected
             if (selectedAnnotation === annotationId) {
                 setSelectedAnnotation(null);
@@ -628,13 +629,13 @@ const DefineKeyAreasTab = ({
 
     const selectAnnotationFromSidebar = (pageNumber, annotationId) => {
         console.log(`Selecting annotation ${annotationId} on page ${pageNumber} from sidebar`);
-        
+
         // Scroll to the page
         const pageElement = document.getElementById(`page-content-${pageNumber}`);
         if (pageElement) {
-            pageElement.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'center' 
+            pageElement.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
             });
         }
 
@@ -662,7 +663,7 @@ const DefineKeyAreasTab = ({
                     pageNumber: pageNumber
                 })
             });
-            
+
             const data = await response.json();
             onSummaryChange(pageNumber, data.summary);
         } catch (err) {
@@ -688,14 +689,14 @@ const DefineKeyAreasTab = ({
             console.log('🚀 [DefineKeyAreas] ENHANCED - Generating clippings with NEW coordinate system');
             console.log('📊 [DefineKeyAreas] Annotations to process:', allAnnotationsFlat);
             console.log('📐 [DefineKeyAreas] Canvas dimensions:', canvasDimensions);
-            
+
             // Enhanced debugging with coordinate transformation analysis
             allAnnotationsFlat.forEach((annotation, index) => {
                 const pageDims = canvasDimensions[annotation.pageNumber];
                 console.log(`\n🔍 [DefineKeyAreas] ANNOTATION ${index + 1} ANALYSIS (${annotation.tag} on page ${annotation.pageNumber}):`);
                 console.log(`  📍 Canvas Coords: (${annotation.left}, ${annotation.top}) ${annotation.width}x${annotation.height}`);
                 console.log(`  📐 Canvas Dims: ${pageDims?.width}x${pageDims?.height} (scale: ${pageDims?.scale})`);
-                
+
                 // Calculate PDF coordinates using new system if available
                 if (pageDims?.transformer) {
                     try {
@@ -703,35 +704,35 @@ const DefineKeyAreasTab = ({
                             annotation.left, annotation.top, annotation.width, annotation.height,
                             pageDims.width, pageDims.height
                         );
-                        
+
                         const pdfCoords = pageDims.transformer.canvasToPdf(canvasCoords);
-                        
+
                         console.log(`  📄 PDF Coords (NEW SYSTEM): (${pdfCoords.left.toFixed(2)}, ${pdfCoords.top.toFixed(2)}) ${pdfCoords.width.toFixed(2)}x${pdfCoords.height.toFixed(2)} points`);
                         console.log(`  🎯 Page Metadata: ${pageDims.pageMetadata.pdfWidthPoints}x${pageDims.pageMetadata.pdfHeightPoints} points @ ${pageDims.pageMetadata.imageDpi} DPI`);
-                        
+
                         // Store PDF coordinates for backend
                         annotation.pdfCoordinates = pdfCoords.toDict();
-                        
+
                     } catch (error) {
                         console.error(`  ❌ PDF coordinate calculation failed:`, error);
                     }
                 } else {
                     console.warn(`  ⚠️  No coordinate transformer available for page ${annotation.pageNumber}`);
                 }
-                
+
                 // Original canvas verification
                 const canvasElement = document.getElementById(`canvas-${annotation.pageNumber}`);
                 if (canvasElement) {
                     console.log(`  🖼️  Canvas Element: ${canvasElement.width}x${canvasElement.height} (DOM)`);
                     console.log(`  📏 Canvas Style: ${canvasElement.style.width} x ${canvasElement.style.height}`);
-                    
+
                     const fabricCanvas = fabricCanvases[annotation.pageNumber];
                     if (fabricCanvas) {
                         console.log(`  🎨 Fabric Canvas: ${fabricCanvas.width}x${fabricCanvas.height}`);
-                        console.log(`  🖼️  Background:`, fabricCanvas.backgroundImage ? 
-                            `${fabricCanvas.backgroundImage.width}x${fabricCanvas.backgroundImage.height} (scale: ${fabricCanvas.backgroundImage.scaleX}x${fabricCanvas.backgroundImage.scaleY})` : 
+                        console.log(`  🖼️  Background:`, fabricCanvas.backgroundImage ?
+                            `${fabricCanvas.backgroundImage.width}x${fabricCanvas.backgroundImage.height} (scale: ${fabricCanvas.backgroundImage.scaleX}x${fabricCanvas.backgroundImage.scaleY})` :
                             'None');
-                        
+
                         const objects = fabricCanvas.getObjects();
                         console.log(`  📦 Canvas Objects (${objects.length}):`);
                         objects.forEach((obj, objIndex) => {
@@ -754,11 +755,11 @@ const DefineKeyAreasTab = ({
             });
 
             const data = await response.json();
-            
+
             if (response.ok) {
                 console.log('Clippings generated successfully:', data);
                 alert(`✅ Generated ${data.clippings.length} high-resolution clippings!`);
-                
+
                 // Still call the original save function
                 if (onSaveData) {
                     await onSaveData();
@@ -777,7 +778,7 @@ const DefineKeyAreasTab = ({
         // Generate a simple colored thumbnail representing the annotation
         const tool = annotationTools.find(t => t.id === annotation.tag);
         const color = tool?.color || '#ccc';
-        
+
         // Create a simple SVG thumbnail without emojis to avoid btoa encoding issues
         const svg = `
             <svg width="40" height="30" xmlns="http://www.w3.org/2000/svg">
@@ -785,13 +786,26 @@ const DefineKeyAreasTab = ({
                 <circle cx="20" cy="15" r="3" fill="${color}"/>
             </svg>
         `;
-        
+
         // Use encodeURIComponent instead of btoa to handle any characters safely
         return `data:image/svg+xml,${encodeURIComponent(svg)}`;
     };
 
     const renderSidebar = () => (
-        <div className="sidebar">
+        <div className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+            <div className="sidebar-header">
+                <button onClick={generateHighResClippings} className="generate-button">
+                    Move onto Symbol Identification
+                </button>
+                <button
+                    className="sidebar-toggle"
+                    title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    onClick={() => setSidebarCollapsed(v => !v)}
+                >
+                    {sidebarCollapsed ? '➡️' : '⬅️'}
+                </button>
+            </div>
+
             <div className="annotation-list">
                 <h3>All Annotations</h3>
                 {Object.keys(allAnnotations).length === 0 ? (
@@ -804,13 +818,13 @@ const DefineKeyAreasTab = ({
                                 const tool = annotationTools.find(t => t.id === annotation.tag);
                                 const isSelected = selectedAnnotation === annotation.id;
                                 return (
-                                    <div 
-                                        key={annotation.id} 
+                                    <div
+                                        key={annotation.id}
                                         className={`annotation-item ${isSelected ? 'selected' : ''}`}
                                         onClick={() => selectAnnotationFromSidebar(parseInt(pageNumber), annotation.id)}
                                         style={{ cursor: 'pointer' }}
                                     >
-                                        <img 
+                                        <img
                                             src={getThumbnailForAnnotation(annotation)}
                                             alt={`${tool?.label} thumbnail`}
                                             className="annotation-thumbnail"
@@ -819,7 +833,7 @@ const DefineKeyAreasTab = ({
                                             <span style={{ color: tool?.color }}>
                                                 {tool?.icon} {tool?.label}
                                             </span>
-                                            <button 
+                                            <button
                                                 onClick={(e) => {
                                                     e.stopPropagation(); // Prevent triggering selection
                                                     deleteAnnotation(parseInt(pageNumber), annotation.id);
@@ -837,17 +851,14 @@ const DefineKeyAreasTab = ({
                 )}
             </div>
 
-            <div className="generate-section">
-                <button onClick={generateHighResClippings} className="generate-button">
-                    Move onto Symbol Identification
-                </button>
-            </div>
+            {/* Footer kept for spacing when list is short */}
+            <div className="generate-section" />
         </div>
     );
 
     const renderPageStatus = (pageNumber) => {
         const status = pixmapStatus[pageNumber];
-        
+
         switch (status) {
             case 'ready':
                 return (
@@ -865,7 +876,7 @@ const DefineKeyAreasTab = ({
                 return (
                     <div className="page-status error">
                         ❌ Image failed to load
-                        <button 
+                        <button
                             onClick={() => onPixmapCheck(pageNumber)}
                             className="retry-button"
                         >
@@ -877,7 +888,7 @@ const DefineKeyAreasTab = ({
                 return (
                     <div className="page-status not-available">
                         ⏳ Image not yet available
-                        <button 
+                        <button
                             onClick={() => onPixmapCheck(pageNumber)}
                             className="check-button"
                         >
@@ -891,93 +902,50 @@ const DefineKeyAreasTab = ({
     const renderPageContent = (pageNumber) => (
         <div key={pageNumber} id={`page-content-${pageNumber}`} className="page-content">
             <div className="page-header">
-                <h3>Page {pageNumber}</h3>
-                {renderPageStatus(pageNumber)}
-            </div>
-            
-            <div className="page-layout">
-                <div className="page-summary">
-                    <h4>Page Summary</h4>
-                    {editingSummary[pageNumber] ? (
-                        <div>
-                            <textarea
-                                value={pageSummaries[pageNumber] || ''}
-                                onChange={(e) => onSummaryChange(pageNumber, e.target.value)}
-                                className="summary-textarea"
-                                placeholder="Lorem ipsum dolor sit amet, consectetur adipiscing elit..."
-                            />
-                            <div className="summary-controls">
-                                <button onClick={() => setEditingSummary(prev => ({ ...prev, [pageNumber]: false }))}>
-                                    Save
-                                </button>
-                            </div>
-                        </div>
-                    ) : (
-                        <div>
-                            <p className="summary-text">
-                                {pageSummaries[pageNumber] || 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras in fermentum dui, vel bibendum leo. Aenean porttitor nibh quam, a gravida dui euismod quis. Donec lacinia convallis malesuada. Nam tincidunt consequat elit sit amet posuere. Proin auctor fringilla augue, vel tempor risus suscipit et. Nunc ultrices lectus a enim posuere, et hendrerit orci aliquam. Curabitur efficitur tristique malesuada.'}
-                            </p>
-                            <button 
-                                onClick={() => setEditingSummary(prev => ({ ...prev, [pageNumber]: true }))}
-                                className="edit-button"
-                            >
-                                Edit Page Notes
-                            </button>
-                            <button 
-                                onClick={() => generatePageSummary(pageNumber)}
-                                className="ai-button"
-                            >
-                                🤖 AI Generate
-                            </button>
-                        </div>
-                    )}
+                <div className="page-header-left">
+                    <h3>Page {pageNumber}</h3>
+                    {renderPageStatus(pageNumber)}
                 </div>
+                <div className="page-header-actions">
+                    <span className="label">Add key area:</span>
+                    <button
+                        className={`add-button ${selectedTool === 'TitleBlock' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
+                        onClick={() => startDrawing('TitleBlock', pageNumber)}
+                        title="Title Block"
+                    >
+                        {selectedTool === 'TitleBlock' && isDrawing && drawingPage === pageNumber ? '📋 Click & Drag' : '📋 Title Block'}
+                    </button>
+                    <button
+                        className={`add-button ${selectedTool === 'DrawingArea' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
+                        onClick={() => startDrawing('DrawingArea', pageNumber)}
+                        title="Drawing Area"
+                    >
+                        {selectedTool === 'DrawingArea' && isDrawing && drawingPage === pageNumber ? '📐 Click & Drag' : '📐 Drawing Area'}
+                    </button>
+                    <button
+                        className={`add-button ${selectedTool === 'NotesArea' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
+                        onClick={() => startDrawing('NotesArea', pageNumber)}
+                        title="Notes Area"
+                    >
+                        {selectedTool === 'NotesArea' && isDrawing && drawingPage === pageNumber ? '📝 Click & Drag' : '📝 Notes Area'}
+                    </button>
+                    <button
+                        className={`add-button ${selectedTool === 'SymbolLegend' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
+                        onClick={() => startDrawing('SymbolLegend', pageNumber)}
+                        title="Symbol Legend"
+                    >
+                        {selectedTool === 'SymbolLegend' && isDrawing && drawingPage === pageNumber ? '🔣 Click & Drag' : '🔣 Symbol Legend'}
+                    </button>
+                </div>
+            </div>
 
+            <div className="page-layout">
                 <div className="page-canvas-container">
-                    <canvas 
+                    <canvas
                         id={`canvas-${pageNumber}`}
                         className="page-canvas"
                         data-page={pageNumber}
                     />
-                </div>
-
-                <div className="page-sections">
-                    <div className="title-block">
-                        <h4>📋 Title Block:</h4>
-                        <button 
-                            className={`add-button ${selectedTool === 'TitleBlock' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
-                            onClick={() => startDrawing('TitleBlock', pageNumber)}
-                        >
-                            {selectedTool === 'TitleBlock' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
-                        </button>
-                    </div>
-                    <div className="drawing-area">
-                        <h4>📐 Drawing Area:</h4>
-                        <button 
-                            className={`add-button ${selectedTool === 'DrawingArea' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
-                            onClick={() => startDrawing('DrawingArea', pageNumber)}
-                        >
-                            {selectedTool === 'DrawingArea' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
-                        </button>
-                    </div>
-                    <div className="notes-area">
-                        <h4>📝 Notes Area:</h4>
-                        <button 
-                            className={`add-button ${selectedTool === 'NotesArea' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
-                            onClick={() => startDrawing('NotesArea', pageNumber)}
-                        >
-                            {selectedTool === 'NotesArea' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
-                        </button>
-                    </div>
-                    <div className="symbol-legend">
-                        <h4>🔣 Symbol Legend:</h4>
-                        <button 
-                            className={`add-button ${selectedTool === 'SymbolLegend' && isDrawing && drawingPage === pageNumber ? 'active' : ''}`}
-                            onClick={() => startDrawing('SymbolLegend', pageNumber)}
-                        >
-                            {selectedTool === 'SymbolLegend' && isDrawing && drawingPage === pageNumber ? 'Click & Drag on Canvas' : 'Add'}
-                        </button>
-                    </div>
                 </div>
             </div>
         </div>
@@ -986,9 +954,9 @@ const DefineKeyAreasTab = ({
     return (
         <div className="define-key-areas-tab">
             {renderSidebar()}
-            
+
             <div className="pages-container">
-                {Array.from({ length: docInfo.totalPages }, (_, i) => i + 1).map(pageNumber => 
+                {Array.from({ length: docInfo.totalPages }, (_, i) => i + 1).map(pageNumber =>
                     renderPageContent(pageNumber)
                 )}
             </div>
@@ -996,4 +964,4 @@ const DefineKeyAreasTab = ({
     );
 };
 
-export default DefineKeyAreasTab; 
+export default DefineKeyAreasTab;
