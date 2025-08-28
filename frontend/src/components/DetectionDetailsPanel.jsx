@@ -4,7 +4,9 @@ const DetectionDetailsPanel = ({
     selectedDetection,
     onStatusUpdate,
     onDetectionDelete,
-    variant = 'standard' // 'standard' | 'compact'
+    variant = 'standard', // 'standard' | 'compact'
+    selectedIds = [],
+    onClearSelection
 }) => {
     if (!selectedDetection) {
         return (
@@ -18,15 +20,17 @@ const DetectionDetailsPanel = ({
     }
 
     const handleAccept = () => {
-        if (onStatusUpdate) {
-            onStatusUpdate(selectedDetection.detectionId, 'accepted');
-        }
+        if (!onStatusUpdate) return;
+        const payload = (selectedIds && selectedIds.length > 0) ? selectedIds : selectedDetection?.detectionId;
+        onStatusUpdate(payload, 'accepted');
+        if (onClearSelection) onClearSelection();
     };
 
     const handleReject = () => {
-        if (onStatusUpdate) {
-            onStatusUpdate(selectedDetection.detectionId, 'rejected');
-        }
+        if (!onStatusUpdate) return;
+        const payload = (selectedIds && selectedIds.length > 0) ? selectedIds : selectedDetection?.detectionId;
+        onStatusUpdate(payload, 'rejected');
+        if (onClearSelection) onClearSelection();
     };
 
     const handleDelete = () => {
@@ -66,12 +70,8 @@ const DetectionDetailsPanel = ({
                     {selectedDetection.isUserAdded && gridItem('Source', 'User Added', '#007bff')}
                 </div>
                 <div style={{ marginTop: 10, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                    {selectedDetection.status !== 'accepted' && (
-                        <button className="btn btn-success" onClick={handleAccept}>✓ Accept</button>
-                    )}
-                    {selectedDetection.status !== 'rejected' && (
-                        <button className="btn btn-warning" onClick={handleReject}>✗ Reject</button>
-                    )}
+                    <button className="btn btn-success" onClick={handleAccept}>✓ Accept</button>
+                    <button className="btn btn-warning" onClick={handleReject}>✗ Reject</button>
                     <button className="btn btn-danger" onClick={handleDelete}>🗑️ Delete</button>
                 </div>
                 {selectedDetection.createdAt && (

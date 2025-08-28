@@ -516,6 +516,10 @@ const SymbolReviewTab = ({
                                             setSelectedDetection(det);
                                             setShowDetailsPanel(true);
                                         }}
+                                        onlyInViewport={onlyInViewport}
+                                        onSelectionChange={(ids) => {
+                                            // Reserved: could wire selectedIds to details card
+                                        }}
                                     />
 
                                     {/* Compact overlay controls (top-right of canvas viewport) */}

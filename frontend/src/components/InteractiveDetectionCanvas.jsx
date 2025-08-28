@@ -12,7 +12,9 @@ const InteractiveDetectionCanvas = ({
     onDetectionSelect,
     onDetectionStatusUpdate,
     onRequestDetails,
-    onlyInViewport = false
+    onlyInViewport = false,
+    onSelectionChange,
+    clearSelectionTick
 }) => {
     const canvasRef = useRef(null);
     // Scrollable viewport that contains the canvas; zoom/pan happen inside this frame
@@ -682,6 +684,24 @@ const InteractiveDetectionCanvas = ({
     const isDetectionSelected = (det) => canvasState.selectedIds.has(det.detectionId);
     const clearSelection = () => setCanvasState(prev => ({ ...prev, selectedIds: new Set(), selectedDetection: null }));
 
+    // Notify parent on selection changes
+    useEffect(() => {
+        if (onSelectionChange) {
+            try {
+                onSelectionChange(Array.from(canvasState.selectedIds));
+            } catch (_) {}
+        }
+    }, [canvasState.selectedIds, onSelectionChange]);
+
+    // Respond to external clear selection tick
+    const lastClearTickRef = useRef(null);
+    useEffect(() => {
+        if (clearSelectionTick !== undefined && clearSelectionTick !== lastClearTickRef.current) {
+            lastClearTickRef.current = clearSelectionTick;
+            clearSelection();
+        }
+    }, [clearSelectionTick]);
+
     const orderedDetections = React.useMemo(() => {
         return [...detections].sort((a, b) => {
             const ca = a.pdfCoords, cb = b.pdfCoords;
@@ -769,14 +789,14 @@ const InteractiveDetectionCanvas = ({
                 }}
             >
                 <div style={{ position: 'relative', width: canvasState.canvasSize.width, height: canvasState.canvasSize.height, margin: '0 auto' }}>
-                    <canvas
-                        ref={canvasRef}
-                        onMouseDown={handleMouseDown}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        className="detection-canvas"
-                        style={{
-                            cursor: canvasState.isAddingDetection ? 'crosshair' : 'default',
+                <canvas
+                    ref={canvasRef}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    className="detection-canvas"
+                    style={{
+                        cursor: canvasState.isAddingDetection ? 'crosshair' : 'default',
                             position: 'absolute',
                             top: 0,
                             left: 0
