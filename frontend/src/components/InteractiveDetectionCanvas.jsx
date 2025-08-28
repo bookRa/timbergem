@@ -11,7 +11,8 @@ const InteractiveDetectionCanvas = ({
     onDetectionDelete,
     onDetectionSelect,
     onDetectionStatusUpdate,
-    onRequestDetails
+    onRequestDetails,
+    onlyInViewport = false
 }) => {
     const canvasRef = useRef(null);
     // Scrollable viewport that contains the canvas; zoom/pan happen inside this frame
@@ -20,7 +21,7 @@ const InteractiveDetectionCanvas = ({
     const containerRef = viewportRef;
     const imageRef = useRef(null);
 
-    const MIN_SCALE = 0.25;
+    const MIN_SCALE = 0.05; // allow true fit in very wide containers
     const MAX_SCALE = 3.0;
 
     const [canvasState, setCanvasState] = useState({
@@ -165,6 +166,17 @@ const InteractiveDetectionCanvas = ({
         fitToContainer(imageRef.current);
     }, [fitToContainer]);
 
+    // Fit to width helper (not yet wired to a button; available for future use)
+    const handleFitWidth = useCallback(() => {
+        const img = imageRef.current; const viewport = viewportRef.current;
+        if (!img || !viewport) return;
+        const rect = viewport.getBoundingClientRect();
+        const scaleX = Math.max(50, rect.width - 16) / img.width;
+        const clamped = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scaleX));
+        applyScale(img, clamped);
+        requestAnimationFrame(() => { viewport.scrollLeft = 0; });
+    }, [applyScale]);
+
     // Wheel zoom (Cmd/Ctrl + wheel) and trackpad pinch-zoom (often sets ctrlKey)
     useEffect(() => {
         const viewport = viewportRef.current;
@@ -227,8 +239,25 @@ const InteractiveDetectionCanvas = ({
         // 1. Draw page image as background
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-        // 2. Draw detection overlays
+        // 2. Draw detection overlays with optional viewport culling
+        let visibleRect = null;
+        if (onlyInViewport && viewportRef.current) {
+            const vp = viewportRef.current;
+            const left = vp.scrollLeft;
+            const top = vp.scrollTop;
+            const right = left + vp.clientWidth;
+            const bottom = top + vp.clientHeight;
+            const pad = 200; // small buffer to reduce pop-in
+            visibleRect = { left: left - pad, top: top - pad, right: right + pad, bottom: bottom + pad };
+        }
+
         detections.forEach(detection => {
+            if (visibleRect) {
+                const c = pdfToCanvas(detection.pdfCoords);
+                const dr = { left: c.x, top: c.y, right: c.x + c.width, bottom: c.y + c.height };
+                const intersect = !(dr.left > visibleRect.right || dr.right < visibleRect.left || dr.top > visibleRect.bottom || dr.bottom < visibleRect.top);
+                if (!intersect) return;
+            }
             renderDetectionOverlay(ctx, detection);
         });
 
@@ -627,10 +656,21 @@ const InteractiveDetectionCanvas = ({
         }
     };
 
+    // Schedule renders to batch frequent updates
+    const renderScheduled = useRef(false);
+    const scheduleRender = useCallback(() => {
+        if (renderScheduled.current) return;
+        renderScheduled.current = true;
+        requestAnimationFrame(() => {
+            renderScheduled.current = false;
+            renderCanvas();
+        });
+    }, [renderCanvas]);
+
     // Re-render when detections or canvas state changes
     useEffect(() => {
-        renderCanvas();
-    }, [renderCanvas]);
+        scheduleRender();
+    }, [scheduleRender]);
 
     // Derived helpers
     const getSelectedCanvasRect = () => {
