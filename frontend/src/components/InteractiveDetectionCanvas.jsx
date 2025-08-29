@@ -685,10 +685,10 @@ const InteractiveDetectionCanvas = ({
         });
     }, [renderCanvas]);
 
-    // Re-render when detections or canvas state changes
+    // Re-render when inputs change
     useEffect(() => {
         scheduleRender();
-    }, [scheduleRender]);
+    }, [detections, canvasState, onlyInViewport, scheduleRender]);
 
     // Derived helpers
     const getSelectedCanvasRect = () => {

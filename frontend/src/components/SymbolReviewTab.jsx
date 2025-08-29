@@ -252,8 +252,9 @@ const SymbolReviewTab = ({
                 });
             }
 
-            // Refresh detection results
-            loadDetectionResults(detectionResults.runId);
+            // Refresh detection results and force a render tick
+            await loadDetectionResults(detectionResults.runId);
+            // Nudge downstream canvas to clear selection and re-render
             setSelectedDetection(null);
         } catch (err) {
             console.error('Failed to delete detection:', err);
