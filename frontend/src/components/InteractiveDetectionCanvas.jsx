@@ -868,9 +868,12 @@ const InteractiveDetectionCanvas = ({
                                         <button className="btn btn-secondary" onClick={() => onRequestDetails && onRequestDetails(canvasState.selectedDetection)}>View Details</button>
                                     </div>
                                     <div style={{ marginTop: 6, textAlign: 'right' }}>
-                                        <button className="btn btn-danger" onClick={() => {
+                                        <button className="btn btn-danger" onClick={async () => {
                                             const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : [canvasState.selectedDetection.detectionId];
-                                            ids.forEach(id => onDetectionDelete && onDetectionDelete(id));
+                                            if (onDetectionDelete) {
+                                                await onDetectionDelete(ids);
+                                            }
+                                            clearSelection();
                                         }}>🗑️ Delete</button>
                                     </div>
                                 </div>
@@ -927,11 +930,12 @@ const InteractiveDetectionCanvas = ({
                 {canvasState.selectedDetection && (
                     <button
                         className="btn btn-danger"
-                        onClick={() => {
+                        onClick={async () => {
+                            const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : [canvasState.selectedDetection.detectionId];
                             if (onDetectionDelete) {
-                                onDetectionDelete(canvasState.selectedDetection.detectionId);
+                                await onDetectionDelete(ids);
                             }
-                            setCanvasState(prev => ({ ...prev, selectedDetection: null }));
+                            clearSelection();
                         }}
                     >
                         🗑️ Delete

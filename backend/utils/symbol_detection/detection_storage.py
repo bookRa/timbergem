@@ -866,8 +866,9 @@ class DetectionStorage:
             if item.startswith("symbol_"):
                 symbol_file = os.path.join(run_dir, item, "detections.json")
                 if os.path.exists(symbol_file):
-                    with open(symbol_file, "r") as f:
-                        symbol_data = json.load(f)
+                    lock = self._get_path_lock(symbol_file)
+                    with lock:
+                        symbol_data = self._safe_load_json(symbol_file)
 
                     # Search and remove detection
                     for page_key, page_detections in symbol_data[
@@ -890,9 +891,9 @@ class DetectionStorage:
                                 elif status == "rejected":
                                     symbol_data["summary"]["rejectedCount"] -= 1
 
-                                # Save updated data
-                                with open(symbol_file, "w") as f:
-                                    json.dump(symbol_data, f, indent=2)
+                                # Save updated data atomically
+                                with lock:
+                                    self._atomic_write_json(symbol_file, symbol_data)
 
                                 # Recalculate run summary
                                 self._recalculate_run_summary(run_id)
