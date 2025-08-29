@@ -93,7 +93,8 @@ const InteractiveDetectionCanvas = ({
             canvasSize: { width: canvasWidth, height: canvasHeight },
             imageSize: { width: img.width, height: img.height }
         }));
-        // Do not call renderCanvas here; the useEffect that depends on renderCanvas will handle drawing
+        // Explicitly render to avoid depending on batched effects for zoom button clicks
+        requestAnimationFrame(() => renderCanvas());
     }, []);
 
     // Zoom keeping the cursor focus stable within the viewport
@@ -254,13 +255,18 @@ const InteractiveDetectionCanvas = ({
         }
 
         detections.forEach(detection => {
+            // If the selected detection is being dragged, render its live state
+            const effectiveDetection = (canvasState.selectedDetection && detection.detectionId === canvasState.selectedDetection.detectionId)
+                ? canvasState.selectedDetection
+                : detection;
+
             if (visibleRect) {
-                const c = pdfToCanvas(detection.pdfCoords);
+                const c = pdfToCanvas(effectiveDetection.pdfCoords);
                 const dr = { left: c.x, top: c.y, right: c.x + c.width, bottom: c.y + c.height };
                 const intersect = !(dr.left > visibleRect.right || dr.right < visibleRect.left || dr.top > visibleRect.bottom || dr.bottom < visibleRect.top);
                 if (!intersect) return;
             }
-            renderDetectionOverlay(ctx, detection);
+            renderDetectionOverlay(ctx, effectiveDetection);
         });
 
         // 3. Draw template preview if adding detection
@@ -523,7 +529,7 @@ const InteractiveDetectionCanvas = ({
                 ...prev,
                 previewPosition: currentPoint
             }));
-            renderCanvas();
+            scheduleRender();
             return;
         }
 
@@ -534,6 +540,7 @@ const InteractiveDetectionCanvas = ({
             const w = currentPoint.x - lx;
             const h = currentPoint.y - ly;
             setCanvasState(prev => ({ ...prev, lasso: { ...prev.lasso, w, h } }));
+            scheduleRender();
             return;
         }
 
@@ -562,8 +569,7 @@ const InteractiveDetectionCanvas = ({
                 ...prev,
                 selectedDetection: updatedDetection
             }));
-
-            renderCanvas();
+            scheduleRender();
         }
     };
 
