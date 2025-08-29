@@ -36,7 +36,8 @@ const InteractiveDetectionCanvas = ({
         imageLoaded: false,
         canvasSize: { width: 800, height: 600 },
         lasso: null, // { x, y, w, h, active }
-        quickReview: false
+        quickReview: false,
+        autoFitEnabled: true
     });
 
     // Load and setup page image
@@ -56,10 +57,15 @@ const InteractiveDetectionCanvas = ({
     }, [pageImageUrl]);
 
     // Recompute canvas sizing on container or window resize
+    const autoFitRef = useRef(true);
+    useEffect(() => { autoFitRef.current = canvasState.autoFitEnabled; }, [canvasState.autoFitEnabled]);
+
     useEffect(() => {
         const handleResize = () => {
             if (imageRef.current) {
-                fitToContainer(imageRef.current);
+                if (autoFitRef.current) {
+                    fitToContainer(imageRef.current);
+                }
             }
         };
         window.addEventListener('resize', handleResize);
@@ -154,18 +160,21 @@ const InteractiveDetectionCanvas = ({
     // Zoom utilities (ensure they exist and are used by buttons)
     const handleZoomIn = useCallback(() => {
         if (!imageRef.current || !viewportRef.current) return;
+        setCanvasState(prev => ({ ...prev, autoFitEnabled: false }));
         const vp = viewportRef.current.getBoundingClientRect();
         zoomAtViewportPoint(1.2, vp.left + vp.width / 2, vp.top + vp.height / 2);
     }, [zoomAtViewportPoint]);
 
     const handleZoomOut = useCallback(() => {
         if (!imageRef.current || !viewportRef.current) return;
+        setCanvasState(prev => ({ ...prev, autoFitEnabled: false }));
         const vp = viewportRef.current.getBoundingClientRect();
         zoomAtViewportPoint(1/1.2, vp.left + vp.width / 2, vp.top + vp.height / 2);
     }, [zoomAtViewportPoint]);
 
     const handleFit = useCallback(() => {
         if (!imageRef.current) return;
+        setCanvasState(prev => ({ ...prev, autoFitEnabled: true }));
         fitToContainer(imageRef.current);
     }, [fitToContainer]);
 
@@ -187,6 +196,7 @@ const InteractiveDetectionCanvas = ({
         const onWheel = (e) => {
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
+                setCanvasState(prev => ({ ...prev, autoFitEnabled: false }));
                 const delta = e.deltaY < 0 ? 1.1 : 1/1.1;
                 zoomAtViewportPoint(delta, e.clientX, e.clientY);
             }
