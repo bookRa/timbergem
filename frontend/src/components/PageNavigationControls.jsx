@@ -28,17 +28,26 @@ const PageNavigationControls = ({
     };
 
     return (
-        <div className="page-navigation-controls">
+        <div className="page-navigation-controls" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <button 
                 className="page-nav-button"
                 onClick={handlePrevPage}
                 disabled={currentPage <= 1}
             >
-                ← Previous
+                ◀
             </button>
-            
+            <span className="page-info" style={{ fontSize: 12 }}>
+                Page {currentPage} / {totalPages}
+            </span>
+            <button 
+                className="page-nav-button"
+                onClick={handleNextPage}
+                disabled={currentPage >= totalPages}
+            >
+                ▶
+            </button>
             <div className="page-selector">
-                <label htmlFor="page-select">Page:</label>
+                <label htmlFor="page-select" style={{ fontSize: 12, marginLeft: 6 }}>Jump:</label>
                 <select 
                     id="page-select"
                     value={currentPage} 
@@ -52,21 +61,8 @@ const PageNavigationControls = ({
                     ))}
                 </select>
             </div>
-            
-            <span className="page-info">
-                Page {currentPage} of {totalPages}
-            </span>
-            
-            <button 
-                className="page-nav-button"
-                onClick={handleNextPage}
-                disabled={currentPage >= totalPages}
-            >
-                Next →
-            </button>
-            
             {pagesWithDetections.length > 0 && (
-                <div className="detection-summary">
+                <div className="detection-summary" style={{ fontSize: 12 }}>
                     <span className="detection-count">
                         {pagesWithDetections.length} pages with detections
                     </span>

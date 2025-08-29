@@ -23,8 +23,8 @@ const SymbolReviewTab = ({
     const [selectedDetection, setSelectedDetection] = useState(null);
     const [pageImageUrl, setPageImageUrl] = useState(null);
     const [viewMode, setViewMode] = useState('canvas'); // 'canvas' | 'list'
-    const [statusFilter, setStatusFilter] = useState('all');
-    const [confidenceThreshold, setConfidenceThreshold] = useState(0);
+    const [statusFilter, setStatusFilter] = useState(['pending', 'accepted', 'rejected']);
+    const [iouRange, setIouRange] = useState([0, 1]);
     const [showDetailsPanel, setShowDetailsPanel] = useState(false); // inline details above canvas
     const [filtersCollapsed, setFiltersCollapsed] = useState(false); // collapsible sticky header
     const [onlyInViewport, setOnlyInViewport] = useState(false); // placeholder for viewport culling
@@ -85,7 +85,7 @@ const SymbolReviewTab = ({
         try {
             setIsLoading(true);
             console.log(`🔍 Loading detection results for doc: ${docInfo.docId}, run: ${runId}`);
-            const response = await axios.get(`/api/detection_results/${docInfo.docId}?runId=${runId}`);
+            const response = await axios.get(`/api/detection_results/${docInfo.docId}?runId=${runId}&includeRejected=true`);
             console.log('✅ Detection results loaded:', response.data);
             setDetectionResults(response.data);
         } catch (err) {
@@ -185,21 +185,8 @@ const SymbolReviewTab = ({
             // Support single ID or array of IDs
             const ids = Array.isArray(detectionIdOrIds) ? detectionIdOrIds : [detectionIdOrIds];
 
-            if (ids.length > 1) {
-                console.log(`🔄 Bulk updating ${ids.length} detection statuses to ${newStatus}`);
-                const updates = ids.map(id => ({
-                    detectionId: id,
-                    action: newStatus === 'accepted' ? 'accept' : newStatus === 'rejected' ? 'reject' : 'pending',
-                    reviewedBy: 'user'
-                }));
-                const response = await axios.post('/api/update_detection_status', {
-                    docId: docInfo.docId,
-                    runId: runId,
-                    updates
-                });
-                console.log('✅ Bulk status update response:', response.data);
-            } else {
-                const detectionId = ids[0];
+            // Send sequentially to reduce concurrent writes to JSON files
+            for (const detectionId of ids) {
                 console.log('🔄 Updating detection status:', { detectionId, newStatus, runId });
                 const response = await axios.post('/api/update_detection_status', {
                     docId: docInfo.docId,
@@ -251,15 +238,19 @@ const SymbolReviewTab = ({
     };
 
     // Handle detection deletion
-    const handleDetectionDelete = async (detectionId) => {
+    const handleDetectionDelete = async (detectionIdOrIds) => {
         if (!detectionResults?.runId) return;
 
         try {
-            await axios.post('/api/delete_detection', {
-                docId: docInfo.docId,
-                runId: detectionResults.runId,
-                detectionId
-            });
+            const ids = Array.isArray(detectionIdOrIds) ? detectionIdOrIds : [detectionIdOrIds];
+            // Delete sequentially to avoid concurrent writes
+            for (const id of ids) {
+                await axios.post('/api/delete_detection', {
+                    docId: docInfo.docId,
+                    runId: detectionResults.runId,
+                    detectionId: id
+                });
+            }
 
             // Refresh detection results
             loadDetectionResults(detectionResults.runId);
@@ -283,11 +274,15 @@ const SymbolReviewTab = ({
             const pageDetections = symbolData.detectionsByPage?.[selectedPage] || [];
             
             pageDetections.forEach(detection => {
-                // Apply status filter
-                if (statusFilter !== 'all' && detection.status !== statusFilter) return;
-                
-                // Apply confidence threshold
-                if (detection.iouScore < confidenceThreshold) return;
+                // Apply status filter (multi-select)
+                if (Array.isArray(statusFilter) && statusFilter.length > 0) {
+                    if (!statusFilter.includes(detection.status)) return;
+                }
+
+                // Apply IoU range
+                const minIou = iouRange[0] ?? 0;
+                const maxIou = iouRange[1] ?? 1;
+                if (detection.iouScore < minIou || detection.iouScore > maxIou) return;
                 
                 allDetections.push({
                     ...detection,
@@ -441,11 +436,7 @@ const SymbolReviewTab = ({
                                                 Only in viewport
                                             </label>
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                            <button className="btn btn-secondary" onClick={() => setSelectedPage(p => Math.max(1, p - 1))}>◀</button>
-                                            <span style={{ fontSize: 12 }}>Page {selectedPage} / {docInfo?.totalPages || 1}</span>
-                                            <button className="btn btn-secondary" onClick={() => setSelectedPage(p => Math.min((docInfo?.totalPages || 1), p + 1))}>▶</button>
-                                        </div>
+                                        {/* Pager relocated to PageNavigationControls within filters */}
                                     </div>
 
                                     {!filtersCollapsed && (
@@ -453,11 +444,12 @@ const SymbolReviewTab = ({
                                             <SymbolFilterControls
                                                 symbols={getAvailableSymbols()}
                                                 selectedSymbol={selectedSymbol}
-                                                statusFilter={statusFilter}
-                                                confidenceThreshold={confidenceThreshold}
+                                                statusFilters={statusFilter}
+                                                iouRange={iouRange}
                                                 onSymbolChange={setSelectedSymbol}
                                                 onStatusChange={setStatusFilter}
-                                                onConfidenceChange={setConfidenceThreshold}
+                                                onIouRangeChange={setIouRange}
+                                                docId={docInfo?.docId}
                                             />
 
                                             <PageNavigationControls
@@ -524,11 +516,7 @@ const SymbolReviewTab = ({
 
                                     {/* Compact overlay controls (top-right of canvas viewport) */}
                                     <div style={{ position: 'absolute', right: 12, top: 12, display: 'flex', gap: 8 }}>
-                                        <div className="overlay-pager" style={{ background: 'rgba(255,255,255,0.9)', border: '1px solid #e9ecef', borderRadius: 8, padding: '4px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <button className="btn btn-secondary" onClick={() => setSelectedPage(p => Math.max(1, p - 1))}>◀</button>
-                                            <span style={{ fontSize: 12 }}>Page {selectedPage} / {docInfo?.totalPages || 1}</span>
-                                            <button className="btn btn-secondary" onClick={() => setSelectedPage(p => Math.min((docInfo?.totalPages || 1), p + 1))}>▶</button>
-                                        </div>
+                                        {/* Removed duplicate overlay pager to avoid three pagers */}
                                     </div>
                                 </div>
                             </div>

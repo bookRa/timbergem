@@ -9,11 +9,15 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from dataclasses import asdict
 import shutil
+import threading
 
 from .detection_algorithm import DetectionCandidate
+
+if TYPE_CHECKING:
+    from ..coordinate_mapping import PDFCoordinates, ImageCoordinates
 
 
 class DetectionStorage:
@@ -24,6 +28,10 @@ class DetectionStorage:
     organizing results by document and detection run for easy retrieval
     and management.
     """
+
+    # Process-local lock registry to protect JSON files from concurrent writes
+    _lock_registry: Dict[str, threading.Lock] = {}
+    _registry_guard = threading.Lock()
 
     def __init__(self, doc_dir: str):
         """
@@ -43,6 +51,47 @@ class DetectionStorage:
         if not os.path.exists(self.runs_index_file):
             self._initialize_runs_index()
 
+    @classmethod
+    def _get_path_lock(cls, path: str) -> threading.Lock:
+        with cls._registry_guard:
+            lock = cls._lock_registry.get(path)
+            if lock is None:
+                lock = threading.Lock()
+                cls._lock_registry[path] = lock
+            return lock
+
+    @staticmethod
+    def _atomic_write_json(file_path: str, data: Dict[str, Any]):
+        tmp_path = file_path + ".tmp"
+        backup_path = file_path + ".bak"
+        try:
+            if os.path.exists(file_path):
+                try:
+                    shutil.copyfile(file_path, backup_path)
+                except Exception:
+                    pass
+            with open(tmp_path, "w") as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, file_path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+    @staticmethod
+    def _safe_load_json(file_path: str) -> Dict[str, Any]:
+        try:
+            with open(file_path, "r") as f:
+                return json.load(f)
+        except Exception:
+            backup_path = file_path + ".bak"
+            if os.path.exists(backup_path):
+                with open(backup_path, "r") as f:
+                    return json.load(f)
+            raise
+
     def _initialize_runs_index(self):
         """Initialize the detection runs index file"""
         initial_index = {
@@ -51,8 +100,9 @@ class DetectionStorage:
             "runs": [],
         }
 
-        with open(self.runs_index_file, "w") as f:
-            json.dump(initial_index, f, indent=2)
+        lock = self._get_path_lock(self.runs_index_file)
+        with lock:
+            self._atomic_write_json(self.runs_index_file, initial_index)
 
     def create_detection_run(self, run_params: Dict[str, Any]) -> str:
         """
@@ -170,8 +220,9 @@ class DetectionStorage:
 
         # Save symbol detection data
         symbol_file = os.path.join(symbol_dir, "detections.json")
-        with open(symbol_file, "w") as f:
-            json.dump(symbol_data, f, indent=2)
+        lock = self._get_path_lock(symbol_file)
+        with lock:
+            self._atomic_write_json(symbol_file, symbol_data)
 
         print(
             f"   📊 Saved {total_detections} detections across {len(detections_by_page)} pages"
@@ -241,8 +292,9 @@ class DetectionStorage:
         if not os.path.exists(metadata_file):
             return None
 
-        with open(metadata_file, "r") as f:
-            run_data = json.load(f)
+        lock = self._get_path_lock(metadata_file)
+        with lock:
+            run_data = self._safe_load_json(metadata_file)
 
         # Load all symbol detections
         symbol_detections = {}
@@ -251,8 +303,9 @@ class DetectionStorage:
                 symbol_id = item.replace("symbol_", "")
                 symbol_file = os.path.join(run_dir, item, "detections.json")
                 if os.path.exists(symbol_file):
-                    with open(symbol_file, "r") as f:
-                        symbol_detections[symbol_id] = json.load(f)
+                    s_lock = self._get_path_lock(symbol_file)
+                    with s_lock:
+                        symbol_detections[symbol_id] = self._safe_load_json(symbol_file)
 
         run_data["symbolDetections"] = symbol_detections
         return run_data
@@ -267,8 +320,9 @@ class DetectionStorage:
         if not os.path.exists(self.runs_index_file):
             return []
 
-        with open(self.runs_index_file, "r") as f:
-            index_data = json.load(f)
+        lock = self._get_path_lock(self.runs_index_file)
+        with lock:
+            index_data = self._safe_load_json(self.runs_index_file)
 
         return index_data.get("runs", [])
 
@@ -291,13 +345,14 @@ class DetectionStorage:
 
         # Remove from runs index
         if os.path.exists(self.runs_index_file):
-            with open(self.runs_index_file, "r") as f:
-                index_data = json.load(f)
+            lock = self._get_path_lock(self.runs_index_file)
+            with lock:
+                index_data = self._safe_load_json(self.runs_index_file)
 
             index_data["runs"] = [r for r in index_data["runs"] if r["runId"] != run_id]
 
-            with open(self.runs_index_file, "w") as f:
-                json.dump(index_data, f, indent=2)
+            with lock:
+                self._atomic_write_json(self.runs_index_file, index_data)
 
         print(f"🗑️ Deleted detection run {run_id}")
         return True
@@ -312,8 +367,9 @@ class DetectionStorage:
     def _update_runs_index(self, run_id: str, run_metadata: Dict[str, Any]):
         """Update the runs index file"""
         if os.path.exists(self.runs_index_file):
-            with open(self.runs_index_file, "r") as f:
-                runs_index = json.load(f)
+            lock = self._get_path_lock(self.runs_index_file)
+            with lock:
+                runs_index = self._safe_load_json(self.runs_index_file)
         else:
             runs_index = {"version": "1.0", "runs": []}
 
@@ -333,8 +389,9 @@ class DetectionStorage:
         # Sort by creation date (newest first)
         runs_index["runs"].sort(key=lambda x: x["createdAt"], reverse=True)
 
-        with open(self.runs_index_file, "w") as f:
-            json.dump(runs_index, f, indent=2)
+        lock = self._get_path_lock(self.runs_index_file)
+        with lock:
+            self._atomic_write_json(self.runs_index_file, runs_index)
 
     def _calculate_symbol_summary(
         self,
@@ -387,8 +444,9 @@ class DetectionStorage:
         run_dir = os.path.join(self.detections_dir, f"run_{run_id}")
         metadata_file = os.path.join(run_dir, "run_metadata.json")
 
-        with open(metadata_file, "r") as f:
-            run_metadata = json.load(f)
+        lock = self._get_path_lock(metadata_file)
+        with lock:
+            run_metadata = self._safe_load_json(metadata_file)
 
         # Update symbol results
         run_metadata["symbolResults"][symbol_id] = symbol_summary
@@ -425,8 +483,8 @@ class DetectionStorage:
         )
 
         # Save updated metadata
-        with open(metadata_file, "w") as f:
-            json.dump(run_metadata, f, indent=2)
+        with lock:
+            self._atomic_write_json(metadata_file, run_metadata)
 
     def _find_symbol_for_detection(
         self, run_id: str, detection_id: str
@@ -439,8 +497,9 @@ class DetectionStorage:
                 symbol_id = item.replace("symbol_", "")
                 symbol_file = os.path.join(run_dir, item, "detections.json")
                 if os.path.exists(symbol_file):
-                    with open(symbol_file, "r") as f:
-                        symbol_data = json.load(f)
+                    lock = self._get_path_lock(symbol_file)
+                    with lock:
+                        symbol_data = self._safe_load_json(symbol_file)
 
                     # Search through all pages for this detection ID
                     for page_detections in symbol_data["detectionsByPage"].values():
@@ -457,8 +516,9 @@ class DetectionStorage:
         run_dir = os.path.join(self.detections_dir, f"run_{run_id}")
         symbol_file = os.path.join(run_dir, f"symbol_{symbol_id}", "detections.json")
 
-        with open(symbol_file, "r") as f:
-            symbol_data = json.load(f)
+        lock = self._get_path_lock(symbol_file)
+        with lock:
+            symbol_data = self._safe_load_json(symbol_file)
 
         # Apply each update
         for update in updates:
@@ -490,8 +550,8 @@ class DetectionStorage:
         )
 
         # Save updated symbol data
-        with open(symbol_file, "w") as f:
-            json.dump(symbol_data, f, indent=2)
+        with lock:
+            self._atomic_write_json(symbol_file, symbol_data)
 
     def _recalculate_symbol_summary(
         self, detections_by_page: Dict[str, List[Dict]]
@@ -532,8 +592,9 @@ class DetectionStorage:
         run_dir = os.path.join(self.detections_dir, f"run_{run_id}")
         metadata_file = os.path.join(run_dir, "run_metadata.json")
 
-        with open(metadata_file, "r") as f:
-            run_metadata = json.load(f)
+        lock = self._get_path_lock(metadata_file)
+        with lock:
+            run_metadata = self._safe_load_json(metadata_file)
 
         # Reload all symbol data and recalculate
         total_accepted = 0
@@ -545,8 +606,9 @@ class DetectionStorage:
             if item.startswith("symbol_"):
                 symbol_file = os.path.join(run_dir, item, "detections.json")
                 if os.path.exists(symbol_file):
-                    with open(symbol_file, "r") as f:
-                        symbol_data = json.load(f)
+                    lock = self._get_path_lock(symbol_file)
+                    with lock:
+                        symbol_data = self._safe_load_json(symbol_file)
 
                     summary = symbol_data["summary"]
                     total_accepted += summary.get("acceptedCount", 0)
@@ -565,8 +627,8 @@ class DetectionStorage:
         )
 
         # Save updated run metadata
-        with open(metadata_file, "w") as f:
-            json.dump(run_metadata, f, indent=2)
+        with lock:
+            self._atomic_write_json(metadata_file, run_metadata)
 
         # Update runs index
         self._update_runs_index(run_id, run_metadata)
@@ -589,8 +651,9 @@ class DetectionStorage:
             print(f"❌ Run metadata not found for run {run_id}")
             return
 
-        with open(metadata_file, "r") as f:
-            run_metadata = json.load(f)
+        lock = self._get_path_lock(metadata_file)
+        with lock:
+            run_metadata = self._safe_load_json(metadata_file)
 
         # Update status and completion info
         end_time = datetime.now(timezone.utc).isoformat()
@@ -610,8 +673,8 @@ class DetectionStorage:
         )
 
         # Save updated metadata
-        with open(metadata_file, "w") as f:
-            json.dump(run_metadata, f, indent=2)
+        with lock:
+            self._atomic_write_json(metadata_file, run_metadata)
 
         # Update runs index
         self._update_runs_index(run_id, run_metadata)
@@ -640,8 +703,9 @@ class DetectionStorage:
             if item.startswith("symbol_"):
                 symbol_file = os.path.join(run_dir, item, "detections.json")
                 if os.path.exists(symbol_file):
-                    with open(symbol_file, "r") as f:
-                        symbol_data = json.load(f)
+                    lock = self._get_path_lock(symbol_file)
+                    with lock:
+                        symbol_data = self._safe_load_json(symbol_file)
 
                     # Search through all pages for the detection
                     for page_detections in symbol_data["detectionsByPage"].values():
@@ -677,8 +741,9 @@ class DetectionStorage:
             if item.startswith("symbol_"):
                 symbol_file = os.path.join(run_dir, item, "detections.json")
                 if os.path.exists(symbol_file):
-                    with open(symbol_file, "r") as f:
-                        symbol_data = json.load(f)
+                    lock = self._get_path_lock(symbol_file)
+                    with lock:
+                        symbol_data = self._safe_load_json(symbol_file)
 
                     # Search and update detection
                     for page_detections in symbol_data["detectionsByPage"].values():
@@ -692,9 +757,9 @@ class DetectionStorage:
                                     timezone.utc
                                 ).isoformat()
 
-                                # Save updated data
-                                with open(symbol_file, "w") as f:
-                                    json.dump(symbol_data, f, indent=2)
+                                # Save updated data atomically with lock
+                                with lock:
+                                    self._atomic_write_json(symbol_file, symbol_data)
 
                                 updated = True
                                 break
@@ -737,8 +802,9 @@ class DetectionStorage:
             raise ValueError(f"Symbol {symbol_id} not found in run {run_id}")
 
         # Load current symbol data
-        with open(symbol_file, "r") as f:
-            symbol_data = json.load(f)
+        lock = self._get_path_lock(symbol_file)
+        with lock:
+            symbol_data = self._safe_load_json(symbol_file)
 
         # Generate new detection ID
         detection_id = f"user_{uuid.uuid4()}"
@@ -772,8 +838,8 @@ class DetectionStorage:
         symbol_data["summary"]["pendingCount"] += 1
 
         # Save updated data
-        with open(symbol_file, "w") as f:
-            json.dump(symbol_data, f, indent=2)
+        with lock:
+            self._atomic_write_json(symbol_file, symbol_data)
 
         # Recalculate run summary
         self._recalculate_run_summary(run_id)

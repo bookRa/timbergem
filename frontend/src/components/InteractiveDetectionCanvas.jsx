@@ -737,8 +737,16 @@ const InteractiveDetectionCanvas = ({
             } else if (e.key === 'd' || e.key === 'D') {
                 const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : (sel ? [sel.detectionId] : []);
                 if (ids.length > 0) {
-                    ids.forEach(id => onDetectionDelete && onDetectionDelete(id));
-                    clearSelection();
+                    const runDeletes = async () => {
+                        if (onDetectionDelete) {
+                            for (const id of ids) {
+                                // eslint-disable-next-line no-await-in-loop
+                                await onDetectionDelete(id);
+                            }
+                        }
+                        clearSelection();
+                    };
+                    runDeletes();
                 }
             } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
                 if (orderedDetections.length === 0) return;
@@ -847,14 +855,14 @@ const InteractiveDetectionCanvas = ({
                                         IoU: {(canvasState.selectedDetection.iouScore * 100).toFixed(1)}% · Conf: {(canvasState.selectedDetection.matchConfidence * 100).toFixed(1)}%
                                     </div>
                                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                        <button className="btn btn-success" onClick={() => {
+                                        <button className="btn btn-success" onClick={async () => {
                                             const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : [canvasState.selectedDetection.detectionId];
-                                            onDetectionStatusUpdate && onDetectionStatusUpdate(ids, 'accepted');
+                                            if (onDetectionStatusUpdate) { await onDetectionStatusUpdate(ids, 'accepted'); }
                                             clearSelection();
                                         }}>✓ Accept</button>
-                                        <button className="btn btn-warning" onClick={() => {
+                                        <button className="btn btn-warning" onClick={async () => {
                                             const ids = canvasState.selectedIds.size > 0 ? Array.from(canvasState.selectedIds) : [canvasState.selectedDetection.detectionId];
-                                            onDetectionStatusUpdate && onDetectionStatusUpdate(ids, 'rejected');
+                                            if (onDetectionStatusUpdate) { await onDetectionStatusUpdate(ids, 'rejected'); }
                                             clearSelection();
                                         }}>✗ Reject</button>
                                         <button className="btn btn-secondary" onClick={() => onRequestDetails && onRequestDetails(canvasState.selectedDetection)}>View Details</button>
@@ -935,8 +943,8 @@ const InteractiveDetectionCanvas = ({
             {canvasState.selectedIds.size > 1 && (
                 <div style={{ position: 'absolute', left: 12, bottom: 12, background: 'rgba(255,255,255,0.95)', border: '1px solid #e9ecef', borderRadius: 8, padding: '6px 10px', display: 'flex', gap: 8, alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
                     <span style={{ fontSize: 12 }}>{canvasState.selectedIds.size} selected</span>
-                    <button className="btn btn-success" onClick={() => { onDetectionStatusUpdate && onDetectionStatusUpdate(Array.from(canvasState.selectedIds), 'accepted'); clearSelection(); }}>✓ Accept</button>
-                    <button className="btn btn-warning" onClick={() => { onDetectionStatusUpdate && onDetectionStatusUpdate(Array.from(canvasState.selectedIds), 'rejected'); clearSelection(); }}>✗ Reject</button>
+                     <button className="btn btn-success" onClick={async () => { if (onDetectionStatusUpdate) { await onDetectionStatusUpdate(Array.from(canvasState.selectedIds), 'accepted'); } clearSelection(); }}>✓ Accept</button>
+                    <button className="btn btn-warning" onClick={async () => { if (onDetectionStatusUpdate) { await onDetectionStatusUpdate(Array.from(canvasState.selectedIds), 'rejected'); } clearSelection(); }}>✗ Reject</button>
                     <button className="btn btn-secondary" onClick={clearSelection}>Clear</button>
                 </div>
             )}
