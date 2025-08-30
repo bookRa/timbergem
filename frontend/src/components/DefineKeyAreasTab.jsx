@@ -27,6 +27,11 @@ const DefineKeyAreasTab = ({
     const [selectedAnnotation, setSelectedAnnotation] = useState(null); // Track selected annotation
     const [canvasDimensions, setCanvasDimensions] = useState({}); // Track canvas dimensions for coordinate mapping
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // Collapse/expand sidebar
+    const viewportRefs = useRef({}); // Per-page scrollable viewport wrappers
+    const [pageZoom, setPageZoom] = useState({}); // Per-page zoom display
+
+    const MIN_ZOOM = 0.05;
+    const MAX_ZOOM = 3.0;
 
     // Use refs to store current state for event handlers
     const stateRef = useRef({ selectedTool: null, isDrawing: false, drawingPage: null });
@@ -120,6 +125,9 @@ const DefineKeyAreasTab = ({
                             scaleY: scale
                         });
 
+                        // Fit canvas content to viewport after background is ready
+                        requestAnimationFrame(() => fitToViewport(pageNumber));
+
                         console.log(`✅ [DefineKeyAreas] Background loaded for page ${pageNumber}`);
                     }, { crossOrigin: 'anonymous' });
                 }
@@ -166,7 +174,12 @@ const DefineKeyAreasTab = ({
             clearTimeout(timer);
             // Cleanup canvases
             Object.values(fabricCanvases).forEach(canvas => {
-                if (canvas) canvas.dispose();
+                if (canvas) {
+                    if (canvas.__zoomPanCleanup) {
+                        try { canvas.__zoomPanCleanup(); } catch (_) {}
+                    }
+                    canvas.dispose();
+                }
             });
         };
     }, [docInfo.totalPages, docInfo.docId]);
@@ -204,6 +217,12 @@ const DefineKeyAreasTab = ({
 
         // Setup basic canvas interactions IMMEDIATELY after creation
         setupCanvasInteractions(canvas, pageNumber);
+
+        // Setup zoom/pan interactions using Fabric transforms
+        const viewportEl = viewportRefs.current[pageNumber];
+        if (viewportEl) {
+            setupZoomPan(canvas, pageNumber, viewportEl);
+        }
 
         // Check if pixmap is ready before loading background image
         const pageStatus = pixmapStatus[pageNumber];
@@ -293,6 +312,9 @@ const DefineKeyAreasTab = ({
                 scaleX: scale,
                 scaleY: scale
             });
+
+            // Fit canvas content to viewport after background is ready
+            requestAnimationFrame(() => fitToViewport(pageNumber));
         }, (error) => {
             console.log(`Failed to load legacy image for page ${pageNumber}, trying high-res pixmap`);
 
@@ -373,6 +395,9 @@ const DefineKeyAreasTab = ({
                     scaleX: scale,
                     scaleY: scale
                 });
+
+                // Fit canvas content to viewport after background is ready
+                requestAnimationFrame(() => fitToViewport(pageNumber));
             }, (pixmapError) => {
                 console.error(`Failed to load both legacy and high-res images for page ${pageNumber}:`, error, pixmapError);
 
@@ -417,6 +442,108 @@ const DefineKeyAreasTab = ({
         console.log(`Canvas ${pageNumber} initialized and interactions set up`);
     };
 
+    const setupZoomPan = (canvas, pageNumber, viewportEl) => {
+        if (!canvas || !viewportEl) return;
+
+        let isPanning = false;
+        let lastX = 0, lastY = 0;
+
+        const onKeyDown = (e) => { if (e.code === 'Space') viewportEl.classList.add('panning'); };
+        const onKeyUp = (e) => { if (e.code === 'Space') viewportEl.classList.remove('panning'); };
+
+        const onMouseDown = (e) => {
+            if (e.button === 1 || viewportEl.classList.contains('panning')) {
+                isPanning = true; lastX = e.clientX; lastY = e.clientY; e.preventDefault();
+            }
+        };
+
+        const onMouseMove = (e) => {
+            if (!isPanning) return;
+            const dx = e.clientX - lastX; const dy = e.clientY - lastY;
+            lastX = e.clientX; lastY = e.clientY;
+            canvas.relativePan(new fabric.Point(dx, dy));
+        };
+
+        const onMouseUp = () => { isPanning = false; };
+
+        const onWheel = (e) => {
+            if (!(e.ctrlKey || e.metaKey)) return; // only intercept pinch/Cmd zoom
+            e.preventDefault();
+            const rect = viewportEl.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const delta = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+            const prevZoom = canvas.getZoom();
+            const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prevZoom * delta));
+            const point = new fabric.Point(mouseX, mouseY);
+            canvas.zoomToPoint(point, nextZoom);
+            setPageZoom((prev) => ({ ...prev, [pageNumber]: nextZoom }));
+        };
+
+        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keyup', onKeyUp);
+        viewportEl.addEventListener('mousedown', onMouseDown);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mouseup', onMouseUp);
+        viewportEl.addEventListener('wheel', onWheel, { passive: false });
+
+        // Cleanup when canvas is disposed
+        const cleanup = () => {
+            window.removeEventListener('keydown', onKeyDown);
+            window.removeEventListener('keyup', onKeyUp);
+            viewportEl.removeEventListener('mousedown', onMouseDown);
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+            viewportEl.removeEventListener('wheel', onWheel);
+        };
+        // Attach to canvas for disposal and keep a direct handle
+        canvas.on('removed', cleanup);
+        canvas.__zoomPanCleanup = cleanup;
+    };
+
+    const fitToViewport = (pageNumber) => {
+        const canvas = fabricCanvases[pageNumber];
+        const viewportEl = viewportRefs.current[pageNumber];
+        if (!canvas || !viewportEl) return;
+
+        const baseW = canvas.getWidth();
+        const baseH = canvas.getHeight();
+        const rect = viewportEl.getBoundingClientRect();
+        const availableW = Math.max(rect.width - 16, 100);
+        const availableH = Math.max(rect.height - 16, 140);
+        const scaleX = availableW / baseW;
+        const scaleY = availableH / baseH;
+        const fitZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(scaleX, scaleY)));
+
+        canvas.setZoom(fitZoom);
+        // Reset pan to top-left
+        const vt = canvas.viewportTransform;
+        if (vt) { vt[4] = 0; vt[5] = 0; }
+        canvas.requestRenderAll();
+        setPageZoom((prev) => ({ ...prev, [pageNumber]: fitZoom }));
+    };
+
+    const zoomIn = (pageNumber) => {
+        const canvas = fabricCanvases[pageNumber];
+        const viewportEl = viewportRefs.current[pageNumber];
+        if (!canvas || !viewportEl) return;
+        const rect = viewportEl.getBoundingClientRect();
+        const center = new fabric.Point(rect.width / 2, rect.height / 2);
+        const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (canvas.getZoom() || 1) * 1.2));
+        canvas.zoomToPoint(center, next);
+        setPageZoom((prev) => ({ ...prev, [pageNumber]: next }));
+    };
+
+    const zoomOut = (pageNumber) => {
+        const canvas = fabricCanvases[pageNumber];
+        const viewportEl = viewportRefs.current[pageNumber];
+        if (!canvas || !viewportEl) return;
+        const rect = viewportEl.getBoundingClientRect();
+        const center = new fabric.Point(rect.width / 2, rect.height / 2);
+        const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (canvas.getZoom() || 1) / 1.2));
+        canvas.zoomToPoint(center, next);
+        setPageZoom((prev) => ({ ...prev, [pageNumber]: next }));
+    };
     const setupCanvasInteractions = (canvas, pageNumber) => {
         let isDown = false;
         let origX, origY;
@@ -940,12 +1067,54 @@ const DefineKeyAreasTab = ({
             </div>
 
             <div className="page-layout">
-                <div className="page-canvas-container">
-                    <canvas
-                        id={`canvas-${pageNumber}`}
-                        className="page-canvas"
-                        data-page={pageNumber}
-                    />
+                <div className="page-canvas-container" style={{ position: 'relative' }}>
+                    <div
+                        ref={(el) => { viewportRefs.current[pageNumber] = el; }}
+                        className="canvas-viewport"
+                        style={{
+                            width: '100%',
+                            height: '72vh',
+                            overflow: 'hidden',
+                            border: '1px solid #e9ecef',
+                            background: '#fafafa',
+                            position: 'relative'
+                        }}
+                    >
+                        <canvas
+                            id={`canvas-${pageNumber}`}
+                            className="page-canvas"
+                            data-page={pageNumber}
+                            style={{ display: 'block', margin: '0 auto' }}
+                        />
+                    </div>
+
+                    {/* Floating bottom toolbar for zoom/pan controls */}
+                    <div
+                        className="canvas-controls"
+                        style={{
+                            position: 'absolute',
+                            left: '50%',
+                            bottom: 12,
+                            transform: 'translateX(-50%)',
+                            background: 'rgba(255,255,255,0.9)',
+                            border: '1px solid #e9ecef',
+                            borderRadius: 8,
+                            padding: '6px 10px',
+                            display: 'flex',
+                            gap: 6,
+                            alignItems: 'center',
+                            boxShadow: '0 2px 10px rgba(0,0,0,0.05)'
+                        }}
+                    >
+                        <button className="btn" onClick={() => zoomOut(pageNumber)}>−</button>
+                        <button className="btn" onClick={() => zoomIn(pageNumber)}>+</button>
+                        <button className="btn btn-secondary" onClick={() => fitToViewport(pageNumber)}>Fit</button>
+                        <div className="canvas-info" style={{ marginLeft: 8, fontSize: 12, color: '#555' }}>
+                            <span>{Math.round(((pageZoom[pageNumber] || 1) * 100))}%</span>
+                        </div>
+                        <div style={{ marginLeft: 12, fontSize: 12, color: '#888' }}>Space+Drag to pan</div>
+                        <div style={{ marginLeft: 6, fontSize: 12, color: '#888' }}>Cmd/Ctrl+Wheel to zoom</div>
+                    </div>
                 </div>
             </div>
         </div>

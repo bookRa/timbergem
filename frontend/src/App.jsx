@@ -42,7 +42,7 @@ function App() {
     // --- Dev-only preload harness (temporary while revamping UI) ---
     // Toggle off by visiting with ?dev=off or setting localStorage 'tg-dev-preload-off' = '1'
     useEffect(() => {
-        const PRELOAD_DOC_ID = '20be5d76-5e4f-43be-9629-00b19fa3849d';
+        const PRELOAD_DOC_ID = '871dfc70-f8eb-4368-902c-e8c6679b82cb';
 
         // Skip if a doc is already loaded
         if (docInfo) return;
