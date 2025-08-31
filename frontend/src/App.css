@@ -25,7 +25,7 @@ body {
     background: white;
     border-bottom: 1px solid #e1e5e9;
     padding: 20px 30px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
 }
 
 .app-header h1 {
@@ -189,6 +189,8 @@ body {
 .define-key-areas-tab {
     display: flex;
     height: calc(100vh - 140px);
+    min-width: 0;
+    /* allow children to shrink and not force overflow */
 }
 
 /* Sidebar */
@@ -201,6 +203,35 @@ body {
     display: flex;
     flex-direction: column;
     gap: 30px;
+}
+
+.sidebar.collapsed {
+    width: 56px;
+    padding: 12px 8px;
+    gap: 12px;
+}
+
+.sidebar-header {
+    position: sticky;
+    top: 0;
+    background: #f8f9fa;
+    padding-bottom: 8px;
+    z-index: 2;
+}
+
+.sidebar-toggle {
+    width: 100%;
+    padding: 8px 10px;
+    background: #e9ecef;
+    color: #1a2a4c;
+    border: 1px solid #dfe3e8;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.sidebar.collapsed .sidebar-header .generate-button {
+    display: none;
 }
 
 .sidebar h3 {
@@ -217,6 +248,13 @@ body {
 .annotation-list {
     flex: 1;
     overflow-y: auto;
+}
+
+.sidebar.collapsed .annotation-list,
+.sidebar.collapsed h3,
+.sidebar.collapsed .annotation-item,
+.sidebar.collapsed .generate-section {
+    display: none;
 }
 
 .page-annotations {
@@ -316,7 +354,12 @@ body {
     flex: 1;
     padding: 20px;
     overflow-y: auto;
+    /* vertical scroll for multi-page */
+    overflow-x: hidden;
+    /* prevent horizontal scroll at this level */
     background: white;
+    min-width: 0;
+    /* allow content to shrink without forcing horizontal cut */
 }
 
 /* Page content - Full height for single page view */
@@ -324,9 +367,10 @@ body {
     margin-bottom: 20px;
     border: 1px solid #e1e5e9;
     border-radius: 8px;
-    overflow: hidden;
+    overflow: visible;
+    /* allow horizontal scrolling when canvas is wider */
     background: white;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
     /* Make each page take full available height */
     min-height: calc(100vh - 200px);
     display: flex;
@@ -338,11 +382,34 @@ body {
     padding: 15px 20px;
     border-bottom: 1px solid #e1e5e9;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .page-header h3 {
     color: #1a2a4c;
     font-size: 1.3rem;
+}
+
+.page-header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.page-header-actions .label {
+    color: #6c757d;
+    font-size: 0.9rem;
+    margin-right: 2px;
 }
 
 /* Page layout - Fill remaining height */
@@ -351,13 +418,14 @@ body {
     gap: 20px;
     padding: 20px;
     flex: 1;
-    min-height: 0; /* Important for flex container */
+    min-height: 0;
+    /* Important for flex container */
 }
 
 /* Page summary */
+/* Page summary removed from this tab for now */
 .page-summary {
-    width: 250px;
-    flex-shrink: 0;
+    display: none;
 }
 
 .page-summary h4 {
@@ -393,7 +461,8 @@ body {
     margin-top: 10px;
 }
 
-.edit-button, .ai-button {
+.edit-button,
+.ai-button {
     padding: 8px 12px;
     margin-right: 8px;
     background: #6c757d;
@@ -423,15 +492,17 @@ body {
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    min-height: 0; /* Important for flex item */
+    min-height: 0;
+    /* Important for flex item */
+    overflow: auto;
+    /* allow scroll if canvas exceeds width at 100% */
 }
 
 .page-canvas {
     border: 1px solid #e1e5e9;
     border-radius: 6px;
-    max-width: 100%;
-    max-height: 100%;
     height: auto;
+    /* Do not constrain width; let container scroll horizontally */
 }
 
 /* Page sections */
@@ -440,7 +511,7 @@ body {
     flex-shrink: 0;
 }
 
-.page-sections > div {
+.page-sections>div {
     margin-bottom: 20px;
     padding: 15px;
     background: #f8f9fa;
@@ -804,6 +875,7 @@ body {
         transform: translateX(100%);
         opacity: 0;
     }
+
     to {
         transform: translateX(0);
         opacity: 1;
@@ -867,7 +939,7 @@ body {
     font-size: 2rem;
 }
 
-.tab-content-placeholder > p {
+.tab-content-placeholder>p {
     color: #6c757d;
     font-size: 1.1rem;
     margin-bottom: 40px;
@@ -880,7 +952,7 @@ body {
     text-align: left;
 }
 
-.placeholder-content > div {
+.placeholder-content>div {
     background: #f8f9fa;
     padding: 25px;
     border-radius: 8px;
@@ -938,8 +1010,13 @@ body {
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
 }
 
 /* Processing Status */
@@ -987,7 +1064,7 @@ body {
     margin-bottom: 16px;
 }
 
-.placeholder-content > p {
+.placeholder-content>p {
     color: #6c757d;
     font-size: 16px;
     margin-bottom: 32px;
@@ -1036,35 +1113,80 @@ body {
     .placeholder-tabs-preview {
         gap: 12px;
     }
-    
+
     .placeholder-tab {
         padding: 12px;
         gap: 12px;
     }
-    
+
     .tab-icon {
         font-size: 20px;
     }
 }
+
+/* --- Symbol Review: final overrides for desktop layout --- */
+.symbol-review-tab {
+    height: auto;
+}
+
+.symbol-review-content {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+.review-content-loaded {
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.symbol-review-canvas-layout {
+    display: flex;
+    gap: 16px;
+    flex: 1;
+    min-height: 0;
+    padding: 16px;
+}
+
+.canvas-main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.detection-details-panel {
+    flex: 0 0 clamp(280px, 24vw, 420px);
+}
+
+/* --- End Symbol Review overrides --- */
 
 /* Responsive adjustments */
 @media (max-width: 1200px) {
     .page-layout {
         flex-direction: column;
     }
-    
+
     .page-summary {
         width: 100%;
     }
-    
+
     .page-sections {
         width: 100%;
         display: flex;
         gap: 15px;
         overflow-x: auto;
     }
-    
-    .page-sections > div {
+
+    .page-sections>div {
         flex-shrink: 0;
         min-width: 150px;
     }
@@ -1074,21 +1196,21 @@ body {
     .define-key-areas-tab {
         flex-direction: column;
     }
-    
+
     .sidebar {
         width: 100%;
         height: 300px;
         order: 2;
     }
-    
+
     .pages-container {
         order: 1;
     }
-    
+
     .tab-navigation {
         flex-wrap: wrap;
     }
-    
+
     .tab-button {
         flex: 1;
         min-width: 120px;
@@ -1131,7 +1253,8 @@ body {
     border: 1px solid #d6d8db;
 }
 
-.retry-button, .check-button {
+.retry-button,
+.check-button {
     background: none;
     border: none;
     color: inherit;
@@ -1142,7 +1265,8 @@ body {
     margin-left: 4px;
 }
 
-.retry-button:hover, .check-button:hover {
+.retry-button:hover,
+.check-button:hover {
     background-color: rgba(0, 0, 0, 0.05);
     border-radius: 2px;
 }
@@ -1191,6 +1315,7 @@ body {
         transform: translateX(100%);
         opacity: 0;
     }
+
     to {
         transform: translateX(0);
         opacity: 1;
@@ -1199,13 +1324,13 @@ body {
 
 /* Symbol Annotation Tab Styles */
 .symbol-annotation-tab {
-    padding: 30px;
-    max-width: 1400px;
+    padding: 16px 20px;
+    max-width: 1200px;
     margin: 0 auto;
 }
 
 .symbol-annotation-tab .tab-header {
-    margin-bottom: 30px;
+    margin-bottom: 16px;
     text-align: center;
 }
 
@@ -1252,7 +1377,10 @@ body {
 }
 
 .save-section {
-    margin: 20px 0;
+    margin: 12px 0;
+    position: sticky;
+    top: 8px;
+    z-index: 5;
 }
 
 .save-symbols-button {
@@ -1330,7 +1458,7 @@ body {
 .legends-container {
     display: flex;
     flex-direction: column;
-    gap: 40px;
+    gap: 16px;
 }
 
 .symbol-legend-container {
@@ -1338,7 +1466,15 @@ body {
     border: 1px solid #dee2e6;
     border-radius: 12px;
     overflow: hidden;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.symbol-legend-container.collapsed .legend-workspace {
+    display: none;
+}
+
+.symbol-legend-container.collapsed .legend-header {
+    border-bottom: none;
 }
 
 .legend-header {
@@ -1400,50 +1536,54 @@ body {
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.7;
+    }
 }
 
 .legend-workspace {
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    padding: 20px;
-    max-width: 1200px;
-    margin: 0 auto;
+    gap: 16px;
+    padding: 16px;
 }
 
 .legend-image-section {
-    display: flex;
-    gap: 30px;
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: 1fr clamp(320px, 28vw, 420px);
+    gap: 16px;
+    align-items: start;
 }
 
 .legend-image-container {
     position: relative;
-    border: 2px solid #dee2e6;
+    border: 1px solid #dee2e6;
     border-radius: 8px;
-    overflow: visible;
-    background: #f8f9fa;
+    overflow: hidden;
+    background: #fff;
     flex: 1;
-    max-width: 800px;
+    max-width: 720px;
 }
 
 .legend-image {
     display: block;
-    max-width: 100%;
+    width: 100%;
     height: auto;
     cursor: crosshair;
-    position: relative;
-    z-index: 1;
+    pointer-events: none;
 }
 
 .symbol-annotation-canvas {
     position: absolute !important;
-    top: 0;
-    left: 0;
+    inset: 0;
     cursor: crosshair;
-    z-index: 10;
+    z-index: 2;
     pointer-events: auto;
 }
 
@@ -1468,15 +1608,12 @@ body {
 }
 
 .symbols-management-section {
-    flex: 1;
-    min-width: 400px;
-    max-width: 500px;
     display: flex;
     flex-direction: column;
     background: white;
     border: 1px solid #dee2e6;
     border-radius: 8px;
-    padding: 20px;
+    padding: 16px;
 }
 
 .symbols-list-header {
@@ -1537,8 +1674,8 @@ body {
     gap: 12px;
     flex: 1;
     overflow-y: auto;
-    padding-right: 8px;
-    max-height: calc(100vh - 400px);
+    padding-right: 6px;
+    max-height: calc(100vh - 340px);
 }
 
 .symbol-item {
@@ -1556,14 +1693,14 @@ body {
 
 .symbol-item:hover {
     border-color: #007bff;
-    box-shadow: 0 2px 8px rgba(0,123,255,0.1);
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
     transform: translateY(-1px);
 }
 
 .symbol-item.selected {
     border-color: #007bff;
     background: #f0f8ff;
-    box-shadow: 0 4px 12px rgba(0,123,255,0.2);
+    box-shadow: 0 4px 12px rgba(0, 123, 255, 0.2);
     transform: translateY(-1px);
 }
 
@@ -1700,4 +1837,347 @@ body {
 
 .edit-symbol-btn:hover {
     background: #545b62;
+}
+
+/* Symbol Review Tab Styles */
+.symbol-review-tab {
+    padding: 30px;
+    max-width: 1600px;
+    margin: 0 auto;
+    min-height: calc(100vh - 200px);
+    /* New: make the review tab fill available space */
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+/* Header Styles */
+.symbol-review-header {
+    margin-bottom: 16px;
+    padding: 16px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e1e5e9;
+}
+
+.header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.header-title h2 {
+    color: #1a2a4c;
+    font-size: 1.8rem;
+    margin: 0;
+}
+
+.header-subtitle {
+    color: #666;
+    font-size: 1rem;
+    margin: 5px 0 0 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.detection-overview-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.overview-stat {
+    text-align: center;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    transition: all 0.2s ease;
+}
+
+.overview-stat:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.overview-stat.pending {
+    border-left: 4px solid #ffc107;
+    background: #fff9e6;
+}
+
+.overview-stat.accepted {
+    border-left: 4px solid #28a745;
+    background: #f0f9f0;
+}
+
+.overview-stat.rejected {
+    border-left: 4px solid #dc3545;
+    background: #fdf2f2;
+}
+
+.stat-number {
+    display: block;
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #1a2a4c;
+    line-height: 1;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.85rem;
+    color: #6c757d;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Progress Banner */
+.detection-progress-banner {
+    padding: 16px;
+    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    border-radius: 8px;
+    border: 1px solid #81c784;
+    margin-bottom: 16px;
+}
+
+.progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.progress-status {
+    color: #1565c0;
+    font-weight: 500;
+}
+
+.progress-percent {
+    color: #1565c0;
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.progress-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4caf50, #81c784);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.progress-eta {
+    text-align: center;
+    color: #1565c0;
+    font-size: 0.9rem;
+}
+
+/* Error Banner */
+.error-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 8px;
+    margin-bottom: 16px;
+}
+
+.error-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.error-message {
+    flex: 1;
+    color: #721c24;
+    font-weight: 500;
+}
+
+.error-dismiss {
+    background: none;
+    border: none;
+    color: #721c24;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background 0.2s ease;
+}
+
+.error-dismiss:hover {
+    background: rgba(114, 28, 36, 0.1);
+}
+
+/* Content Layout */
+.symbol-review-content {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border: 1px solid #e1e5e9;
+    /* Previously centered with fixed min size; now fill available space */
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    /* allow children to size */
+}
+
+/* Loading State */
+.loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 40px;
+    color: #6c757d;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e9ecef;
+    border-top: 3px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+/* Empty/No-results States: keep compact */
+.empty-state,
+.no-results-state {
+    text-align: center;
+    padding: 40px;
+    max-width: 600px;
+}
+
+/* NEW: Proper full-width container for loaded state */
+.review-content-loaded {
+    width: 100%;
+    height: 100%;
+    text-align: left;
+    padding: 0;
+    max-width: none;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+/* View mode toggle */
+.view-mode-controls {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e9ecef;
+    background: #fafbfc;
+    display: flex;
+    gap: 8px;
+}
+
+/* Reusable button styles used across Symbol Review */
+.btn {
+    border: 1px solid #d0d7de;
+    background: #fff;
+    color: #1f2328;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.btn:hover {
+    background: #f6f8fa;
+}
+
+.btn-primary {
+    background: #1f6feb;
+    border-color: #1f6feb;
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background: #1a60cf;
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: #545b62;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(108, 117, 125, 0.3);
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+}
+
+/* Animations */
+@keyframes spin {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* --- Symbol Review: full-width & canvas alignment overrides --- */
+/* Ensure the Symbol Review area uses nearly the entire viewport width with small gutters */
+.symbol-review-tab {
+    /* Remove fixed max width and centering */
+    max-width: none;
+    margin: 0;
+    /* Tighter side padding per request */
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+/* Reduce header spacing to save vertical space */
+.symbol-review-header {
+    margin-bottom: 16px;
+    padding: 16px;
+}
+
+/* Tighten internal gutters around the canvas area */
+.symbol-review-canvas-layout {
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+/* Left/top align the canvas; remove centering that caused the left-edge offset */
+.interactive-detection-canvas .canvas-container {
+    align-items: flex-start;
+    justify-content: flex-start;
 }
