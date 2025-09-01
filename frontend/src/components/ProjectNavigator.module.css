@@ -25,4 +25,64 @@
     color: #6c757d;
 }
 
+.loading {
+    color: #6c757d;
+    font-style: italic;
+}
+
+.pageList {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pageItem {
+    background: white;
+    border: 1px solid #e1e5e9;
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, transform 0.1s;
+}
+
+.pageItem:hover {
+    border-color: #007bff;
+    background: #f7fbff;
+}
+
+.selected {
+    border-color: #1f6feb;
+    background: #eaf2ff;
+}
+
+.pagePrimary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.pageNum {
+    font-weight: 600;
+    color: #1a2a4c;
+}
+
+.sheetNum {
+    font-size: 12px;
+    color: #6c757d;
+    background: #eef2f7;
+    border: 1px solid #e1e5e9;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.pageTitle {
+    margin-top: 4px;
+    color: #495057;
+    font-size: 13px;
+}
+
 

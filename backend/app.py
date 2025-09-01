@@ -321,6 +321,57 @@ def save_annotations():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/documents/<doc_id>/pages", methods=["GET"])
+def get_document_pages(doc_id):
+    """
+    Returns an ordered list of page objects for the given document.
+    Reads metadata from data/processed/<doc_id>/page_metadata.json
+    Response format:
+    {
+        "docId": "...",
+        "pages": [ {"page_number": 1, "sheet_number": null, "title": null}, ... ]
+    }
+    """
+    try:
+        doc_dir = os.path.join(app.config["PROCESSED_FOLDER"], doc_id)
+        metadata_file = os.path.join(doc_dir, "page_metadata.json")
+
+        if not os.path.exists(doc_dir) or not os.path.exists(metadata_file):
+            return jsonify({"error": "Document or metadata not found", "docId": doc_id, "pages": []}), 404
+
+        import json
+
+        with open(metadata_file, "r") as f:
+            metadata = json.load(f)
+
+        pages_meta = metadata.get("pages", {})
+
+        # Keys may be strings; normalize, sort numerically
+        page_numbers = []
+        for k in pages_meta.keys():
+            try:
+                page_numbers.append(int(k))
+            except Exception:
+                pass
+        page_numbers = sorted(page_numbers)
+
+        pages = []
+        for pn in page_numbers:
+            pm = pages_meta.get(str(pn), {})
+            pages.append({
+                "page_number": pn,
+                # Sheet number/title not yet tracked; keep placeholders for UI stability
+                "sheet_number": pm.get("sheet_number"),
+                "title": pm.get("title"),
+            })
+
+        return jsonify({"docId": doc_id, "pages": pages}), 200
+
+    except Exception as e:
+        print(f"❌ ERROR: Failed to get document pages: {e}")
+        return jsonify({"error": str(e), "docId": doc_id, "pages": []}), 500
+
+
 @app.route("/api/load_annotations/<doc_id>", methods=["GET"])
 def load_annotations(doc_id):
     """

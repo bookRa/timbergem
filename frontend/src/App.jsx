@@ -5,6 +5,7 @@ import styles from './AppLayout.module.css';
 import ProjectNavigator from './components/ProjectNavigator';
 import CanvasView from './components/CanvasView';
 import KnowledgePanel from './components/KnowledgePanel';
+import { AppProvider } from './context/AppContext';
 
 const API_BASE_URL = '';
 
@@ -470,17 +471,19 @@ function App() {
                 </div>
             )}
 
-            <div className={styles.mainRow}>
-                <div className={styles.leftCol}>
-                    <ProjectNavigator />
+            <AppProvider docId={docInfo?.docId}>
+                <div className={styles.mainRow}>
+                    <div className={styles.leftCol}>
+                        <ProjectNavigator />
+                    </div>
+                    <div className={styles.centerCol}>
+                        <CanvasView />
+                    </div>
+                    <div className={styles.rightCol}>
+                        <KnowledgePanel />
+                    </div>
                 </div>
-                <div className={styles.centerCol}>
-                    <CanvasView />
-                </div>
-                <div className={styles.rightCol}>
-                    <KnowledgePanel />
-                </div>
-            </div>
+            </AppProvider>
 
             {/* Pixmap Notifications */}
             {pixmapNotifications.length > 0 && (
