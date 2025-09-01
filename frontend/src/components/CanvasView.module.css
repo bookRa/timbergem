@@ -18,8 +18,10 @@
     flex: 1;
     min-height: 0;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    overflow: hidden;
 }
 
 .placeholder {
@@ -33,17 +35,19 @@
 .imageStage {
     position: relative;
     width: 100%;
-    height: 100%;
+    height: auto;
+    flex: 1 1 auto;
+    min-height: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: auto;
+    overflow: hidden;
 }
 
 .pageImage {
     display: block;
-    max-width: 100%;
-    max-height: 100%;
+    max-width: none;
+    max-height: none;
     border: 1px solid #e1e5e9;
     border-radius: 6px;
     background: white;
@@ -53,6 +57,49 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
+}
+
+.contentLayer {
+    position: absolute;
+    left: 0;
+    top: 0;
+    will-change: transform;
+}
+
+.controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 0 8px 0;
+}
+
+.controlButton {
+    border: 1px solid #d0d7de;
+    background: #fff;
+    color: #1f2328;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.controlButton:hover {
+    background: #f6f8fa;
+}
+
+.zoomInfo {
+    margin-left: 8px;
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.grabbing {
+    cursor: grabbing !important;
+}
+
+.grab {
+    cursor: grab !important;
 }
 
 

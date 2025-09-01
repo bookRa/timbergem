@@ -33,22 +33,21 @@
     flex: 1;
     display: flex;
     min-height: 0;
+    overflow: hidden;
 }
 
 .leftCol {
     flex: 0 0 250px;
-    height: calc(100vh - 65px);
 }
 
 .centerCol {
     flex: 1 1 auto;
     min-width: 0;
-    height: calc(100vh - 65px);
+    display: flex;
 }
 
 .rightCol {
     flex: 0 0 350px;
-    height: calc(100vh - 65px);
 }
 
 
