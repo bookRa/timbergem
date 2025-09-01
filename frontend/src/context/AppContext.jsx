@@ -5,6 +5,7 @@ export const AppContext = createContext({
     selectedPage: null,
     isLoading: false,
     selectPage: () => {},
+    docId: null,
 });
 
 export function AppProvider({ docId, children }) {
@@ -33,6 +34,9 @@ export function AppProvider({ docId, children }) {
                 const pages = Array.isArray(data) ? data : (Array.isArray(data?.pages) ? data.pages : []);
                 if (!isCancelled) {
                     setDocumentPages(pages);
+                    if (pages.length > 0 && !selectedPage) {
+                        setSelectedPage(pages[0]);
+                    }
                 }
             } catch (e) {
                 if (!isCancelled && e.name !== 'AbortError') {
@@ -60,7 +64,8 @@ export function AppProvider({ docId, children }) {
         selectedPage,
         isLoading,
         selectPage,
-    }), [documentPages, selectedPage, isLoading, selectPage]);
+        docId,
+    }), [documentPages, selectedPage, isLoading, selectPage, docId]);
 
     return (
         <AppContext.Provider value={value}>
