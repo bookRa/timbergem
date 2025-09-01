@@ -1,13 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
-import DefineKeyAreasTab from './components/DefineKeyAreasTab';
-import SymbolAnnotationTab from './components/SymbolAnnotationTab';
-import SymbolReviewTab from './components/SymbolReviewTab';
-import KnowledgeGraphTab from './components/KnowledgeGraphTab';
-import ScopeGroupsTab from './components/ScopeGroupsTab';
-import ScopeAnnotationsTab from './components/ScopeAnnotationsTab';
-import PDFToHTMLTab from './components/PDFToHTMLTab';
+import styles from './AppLayout.module.css';
+import ProjectNavigator from './components/ProjectNavigator';
+import CanvasView from './components/CanvasView';
+import KnowledgePanel from './components/KnowledgePanel';
 
 const API_BASE_URL = '';
 
@@ -16,7 +13,6 @@ function App() {
     const [docInfo, setDocInfo] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState('');
-    const [activeTab, setActiveTab] = useState('define-key-areas');
     const [allAnnotations, setAllAnnotations] = useState({});
     const [pageSummaries, setPageSummaries] = useState({});
     
@@ -95,15 +91,7 @@ function App() {
         }
     }, [docInfo]);
 
-    const tabs = [
-        { id: 'define-key-areas', label: 'Define Key Areas', component: DefineKeyAreasTab },
-        { id: 'symbol-annotation', label: 'Symbol Annotation', component: SymbolAnnotationTab },
-        { id: 'symbol-review', label: 'Symbol Review', component: SymbolReviewTab },
-        { id: 'html-representations', label: 'HTML Page Representations', component: PDFToHTMLTab },
-        { id: 'knowledge-graph', label: 'Knowledge Graph', component: KnowledgeGraphTab },
-        { id: 'scope-groups', label: 'Scope Groups', component: ScopeGroupsTab },
-        { id: 'scope-annotations', label: 'Scope Annotations', component: ScopeAnnotationsTab }
-    ];
+    // Tabs removed in favor of a three-column layout
 
     // Pixmap availability checking
     const checkPixmapAvailability = async (docId, totalPages) => {
@@ -429,94 +417,16 @@ function App() {
         }
     };
 
-    const renderActiveTab = () => {
-        const activeTabConfig = tabs.find(tab => tab.id === activeTab);
-        if (!activeTabConfig || !docInfo) return null;
+    // Removed tab rendering logic
 
-        const TabComponent = activeTabConfig.component;
-        
-        const commonProps = {
-            docInfo,
-            allAnnotations,
-            pageSummaries,
-            projectData,
-            onAnnotationsChange: handleAnnotationsChange,
-            onSummaryChange: handleSummaryChange,
-            onProjectDataChange: setProjectData,
-            onSaveData: saveProjectData
-        };
-
-        // HTML representations tab only needs docInfo
-        if (activeTabConfig.id === 'html-representations') {
-            return <TabComponent docInfo={docInfo} />;
-        }
-
-        // Define Key Areas tab gets additional pixmap props
-        if (activeTabConfig.id === 'define-key-areas') {
-            return <TabComponent 
-                {...commonProps} 
-                pixmapStatus={pixmapStatus}
-                onPixmapCheck={(pageNum) => checkPagePixmap(docInfo.docId, pageNum)}
-            />;
-        }
-
-        // Symbol Annotation tab needs special handling for Symbol Legend clippings
-        if (activeTabConfig.id === 'symbol-annotation') {
-            return <TabComponent 
-                {...commonProps}
-                pixmapStatus={pixmapStatus}
-            />;
-        }
-
-        return <TabComponent {...commonProps} />;
-    };
-
-    const renderProcessingPlaceholder = () => {
-        return (
-            <div className="processing-placeholder">
-                <div className="placeholder-content">
-                    <h3>📄 Processing Document</h3>
-                    <p>Your document is being processed. Tabs will become active as content becomes available.</p>
-                    <div className="placeholder-tabs-preview">
-                        <div className="placeholder-tab">
-                            <span className="tab-icon">🎯</span>
-                            <div>
-                                <strong>Define Key Areas</strong>
-                                <p>Annotate important regions on each page</p>
-                            </div>
-                        </div>
-                        <div className="placeholder-tab">
-                            <span className="tab-icon">🔣</span>
-                            <div>
-                                <strong>Symbol Annotation</strong>
-                                <p>Identify and annotate individual symbols</p>
-                            </div>
-                        </div>
-                        <div className="placeholder-tab">
-                            <span className="tab-icon">📄</span>
-                            <div>
-                                <strong>HTML Page Representations</strong>
-                                <p>View AI-generated HTML for each page</p>
-                            </div>
-                        </div>
-                        <div className="placeholder-tab">
-                            <span className="tab-icon">🕸️</span>
-                            <div>
-                                <strong>Knowledge Graph</strong>
-                                <p>Explore connections between content</p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    };
+    // Removed tab placeholder
 
     return (
-        <div className="app-container">
-            <header className="app-header">
-                <h1>TimberGem 💎 - Context Modeler</h1>
-                <div className="header-controls">
+        <div className={styles.appRoot}>
+            <header className={styles.header}>
+                <div className={styles.titleRow}>
+                    <h1 className={styles.title}>TimberGem 💎 - Context Modeler</h1>
+                    <div className={styles.controls}>
                     {/* LLM Provider Selection */}
                     <div className="llm-provider-section">
                         <label htmlFor="llm-provider">LLM Provider:</label>
@@ -545,6 +455,7 @@ function App() {
                             </button>
                         </div>
                     )}
+                    </div>
                 </div>
                 {error && <p className="error-message">{error}</p>}
             </header>
@@ -559,26 +470,17 @@ function App() {
                 </div>
             )}
 
-            {(docInfo || isProcessing) && (
-                <div className="main-content">
-                    <nav className="tab-navigation">
-                        {tabs.map(tab => (
-                            <button
-                                key={tab.id}
-                                className={`tab-button ${activeTab === tab.id ? 'active' : ''} ${isProcessing ? 'disabled' : ''}`}
-                                onClick={() => !isProcessing && setActiveTab(tab.id)}
-                                disabled={isProcessing}
-                            >
-                                {tab.label}
-                            </button>
-                        ))}
-                    </nav>
-
-                    <div className="tab-content">
-                        {docInfo ? renderActiveTab() : renderProcessingPlaceholder()}
-                    </div>
+            <div className={styles.mainRow}>
+                <div className={styles.leftCol}>
+                    <ProjectNavigator />
                 </div>
-            )}
+                <div className={styles.centerCol}>
+                    <CanvasView />
+                </div>
+                <div className={styles.rightCol}>
+                    <KnowledgePanel />
+                </div>
+            </div>
 
             {/* Pixmap Notifications */}
             {pixmapNotifications.length > 0 && (
