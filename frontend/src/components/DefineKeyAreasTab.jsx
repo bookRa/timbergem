@@ -447,9 +447,36 @@ const DefineKeyAreasTab = ({
 
         let isPanning = false;
         let lastX = 0, lastY = 0;
+        const updateCanvasCssSize = () => {
+            try {
+                const zoom = canvas.getZoom() || 1;
+                const baseW = canvas.getWidth();
+                const baseH = canvas.getHeight();
+                const el = canvas.getElement ? canvas.getElement() : null;
+                if (el) {
+                    el.style.width = `${Math.max(1, Math.round(baseW * zoom))}px`;
+                    el.style.height = `${Math.max(1, Math.round(baseH * zoom))}px`;
+                }
+            } catch (_) {}
+        };
 
-        const onKeyDown = (e) => { if (e.code === 'Space') viewportEl.classList.add('panning'); };
-        const onKeyUp = (e) => { if (e.code === 'Space') viewportEl.classList.remove('panning'); };
+        const onKeyDown = (e) => {
+            if (e.code === 'Space') {
+                // Prevent page from scrolling when using space to pan
+                const tag = (e.target && e.target.tagName) ? e.target.tagName.toUpperCase() : '';
+                const isTypingTarget = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON';
+                if (!isTypingTarget) {
+                    e.preventDefault();
+                    viewportEl.classList.add('panning');
+                }
+            }
+        };
+        const onKeyUp = (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                viewportEl.classList.remove('panning');
+            }
+        };
 
         const onMouseDown = (e) => {
             if (e.button === 1 || viewportEl.classList.contains('panning')) {
@@ -467,9 +494,12 @@ const DefineKeyAreasTab = ({
         const onMouseUp = () => { isPanning = false; };
 
         const onWheel = (e) => {
-            if (!(e.ctrlKey || e.metaKey)) return; // only intercept pinch/Cmd zoom
+            // Intercept wheel when zoomed in or when modifier key is pressed to emulate Symbol Review behavior
+            const currentZoom = canvas.getZoom() || 1;
+            if (!(e.ctrlKey || e.metaKey)) return; // only zoom with Cmd/Ctrl+wheel like Symbol Review
             e.preventDefault();
-            const rect = viewportEl.getBoundingClientRect();
+            const canvasEl = canvas.getElement ? canvas.getElement() : null;
+            const rect = (canvasEl || viewportEl).getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
             const delta = e.deltaY < 0 ? 1.1 : 1 / 1.1;
@@ -477,10 +507,11 @@ const DefineKeyAreasTab = ({
             const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prevZoom * delta));
             const point = new fabric.Point(mouseX, mouseY);
             canvas.zoomToPoint(point, nextZoom);
+            syncCanvasCssSize(canvas, nextZoom);
             setPageZoom((prev) => ({ ...prev, [pageNumber]: nextZoom }));
         };
 
-        window.addEventListener('keydown', onKeyDown);
+        window.addEventListener('keydown', onKeyDown, { capture: true });
         window.addEventListener('keyup', onKeyUp);
         viewportEl.addEventListener('mousedown', onMouseDown);
         window.addEventListener('mousemove', onMouseMove);
@@ -501,6 +532,16 @@ const DefineKeyAreasTab = ({
         canvas.__zoomPanCleanup = cleanup;
     };
 
+    // Keep the DOM canvas element size in sync with Fabric zoom so the viewport can scroll
+    const syncCanvasCssSize = (canvas, zoom) => {
+        if (!canvas || !canvas.getElement) return;
+        const el = canvas.getElement();
+        const baseW = canvas.getWidth();
+        const baseH = canvas.getHeight();
+        el.style.width = `${Math.max(1, Math.round(baseW * zoom))}px`;
+        el.style.height = `${Math.max(1, Math.round(baseH * zoom))}px`;
+    };
+
     const fitToViewport = (pageNumber) => {
         const canvas = fabricCanvases[pageNumber];
         const viewportEl = viewportRefs.current[pageNumber];
@@ -509,16 +550,24 @@ const DefineKeyAreasTab = ({
         const baseW = canvas.getWidth();
         const baseH = canvas.getHeight();
         const rect = viewportEl.getBoundingClientRect();
-        const availableW = Math.max(rect.width - 16, 100);
-        const availableH = Math.max(rect.height - 16, 140);
+        const availableW = Math.max(rect.width, 100);
+        const availableH = Math.max(rect.height, 100);
         const scaleX = availableW / baseW;
         const scaleY = availableH / baseH;
         const fitZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(scaleX, scaleY)));
 
         canvas.setZoom(fitZoom);
-        // Reset pan to top-left
+        // Do not offset using viewportTransform; keep origin at (0,0) so scrollbars cover full sheet
         const vt = canvas.viewportTransform;
         if (vt) { vt[4] = 0; vt[5] = 0; }
+        syncCanvasCssSize(canvas, fitZoom);
+        // Center by scrolling the viewport to the middle of the scaled canvas
+        const scaledW = baseW * fitZoom;
+        const scaledH = baseH * fitZoom;
+        requestAnimationFrame(() => {
+            viewportEl.scrollLeft = Math.max(0, (scaledW - viewportEl.clientWidth) / 2);
+            viewportEl.scrollTop = Math.max(0, (scaledH - viewportEl.clientHeight) / 2);
+        });
         canvas.requestRenderAll();
         setPageZoom((prev) => ({ ...prev, [pageNumber]: fitZoom }));
     };
@@ -531,8 +580,30 @@ const DefineKeyAreasTab = ({
         const center = new fabric.Point(rect.width / 2, rect.height / 2);
         const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (canvas.getZoom() || 1) * 1.2));
         canvas.zoomToPoint(center, next);
+        syncCanvasCssSize(canvas, next);
         setPageZoom((prev) => ({ ...prev, [pageNumber]: next }));
     };
+
+    // Refit canvases when the viewport may have changed size (window resize, sidebar toggle)
+    useEffect(() => {
+        let resizeTimer = null;
+        const handleResize = () => {
+            if (resizeTimer) clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                Object.keys(fabricCanvases).forEach((k) => {
+                    const page = parseInt(k);
+                    fitToViewport(page);
+                });
+            }, 100);
+        };
+        window.addEventListener('resize', handleResize);
+        // Also trigger once when sidebar expands/collapses
+        handleResize();
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            if (resizeTimer) clearTimeout(resizeTimer);
+        };
+    }, [fabricCanvases, sidebarCollapsed]);
 
     const zoomOut = (pageNumber) => {
         const canvas = fabricCanvases[pageNumber];
@@ -542,6 +613,7 @@ const DefineKeyAreasTab = ({
         const center = new fabric.Point(rect.width / 2, rect.height / 2);
         const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (canvas.getZoom() || 1) / 1.2));
         canvas.zoomToPoint(center, next);
+        syncCanvasCssSize(canvas, next);
         setPageZoom((prev) => ({ ...prev, [pageNumber]: next }));
     };
     const setupCanvasInteractions = (canvas, pageNumber) => {
@@ -670,6 +742,7 @@ const DefineKeyAreasTab = ({
             console.log('Canvas selection cleared');
             setSelectedAnnotation(null);
         });
+        // no-op
     };
 
     const updateAnnotationsFromCanvas = (canvas, pageNumber) => {
@@ -1074,7 +1147,7 @@ const DefineKeyAreasTab = ({
                         style={{
                             width: '100%',
                             height: '72vh',
-                            overflow: 'hidden',
+                            overflow: 'auto',
                             border: '1px solid #e9ecef',
                             background: '#fafafa',
                             position: 'relative'
@@ -1084,7 +1157,7 @@ const DefineKeyAreasTab = ({
                             id={`canvas-${pageNumber}`}
                             className="page-canvas"
                             data-page={pageNumber}
-                            style={{ display: 'block', margin: '0 auto' }}
+                            style={{ display: 'block' }}
                         />
                     </div>
 
