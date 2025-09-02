@@ -8,23 +8,44 @@ from fastapi import APIRouter, HTTPException
 router = APIRouter(prefix="/api", tags=["sheets"])
 
 
-_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../"))
+_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+_UPLOADS_DIR = os.path.join(_BASE_DIR, "uploads")
 _PROCESSED_DIR = os.path.join(_BASE_DIR, "data", "processed")
 
 
 def _read_json(path: str) -> Optional[Dict[str, Any]]:
     if not os.path.exists(path):
         return None
-    with open(path, "r") as f:
-        return json.load(f)
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _candidate_doc_dirs(doc_id: str) -> List[str]:
+    return [
+        os.path.join(_UPLOADS_DIR, doc_id),
+        os.path.join(_PROCESSED_DIR, doc_id),
+    ]
+
+
+def _find_doc_dir(doc_id: str) -> Optional[str]:
+    for d in _candidate_doc_dirs(doc_id):
+        if os.path.isdir(d):
+            return d
+    return None
 
 
 @router.get("/documents/{doc_id}/pages")
 def list_document_pages(doc_id: str) -> Dict[str, Any]:
-    doc_dir = os.path.join(_PROCESSED_DIR, doc_id)
+    doc_dir = _find_doc_dir(doc_id)
+    if not doc_dir:
+        raise HTTPException(status_code=404, detail="Document not found")
     meta_path = os.path.join(doc_dir, "page_metadata.json")
-    if not os.path.exists(doc_dir) or not os.path.exists(meta_path):
-        raise HTTPException(status_code=404, detail="Document or metadata not found")
+    if not os.path.exists(meta_path):
+        # Document exists but metadata not yet generated
+        return {"docId": doc_id, "pages": []}
 
     metadata = _read_json(meta_path) or {}
     pages_meta = metadata.get("pages", {})
@@ -51,8 +72,8 @@ def list_document_pages(doc_id: str) -> Dict[str, Any]:
 
 @router.get("/documents/{doc_id}/pages/{page_number}/entities")
 def list_page_entities(doc_id: str, page_number: int) -> Dict[str, Any]:
-    doc_dir = os.path.join(_PROCESSED_DIR, doc_id)
-    if not os.path.exists(doc_dir):
+    doc_dir = _find_doc_dir(doc_id)
+    if not doc_dir:
         raise HTTPException(status_code=404, detail="Document not found")
 
     annotations_path = os.path.join(doc_dir, "annotations.json")

@@ -827,7 +827,7 @@ const SymbolAnnotationTab = ({
 
             console.log(`📤 [SymbolAnnotation] Sending ${symbolsToSave.length} symbols to backend...`);
 
-            const response = await fetch('/api/save_symbol_clippings', {
+            const response = await fetch('/api/v1/save_symbol_clippings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

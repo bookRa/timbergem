@@ -60,7 +60,7 @@ const SymbolReviewTab = ({
     const loadDetectionRuns = async () => {
         try {
             setIsLoading(true);
-            const response = await axios.get(`/api/detection_runs/${docInfo.docId}`);
+            const response = await axios.get(`/api/v1/detection_runs/${docInfo.docId}`);
             setDetectionRuns(response.data.runs || []);
         } catch (err) {
             console.error('Failed to load detection runs:', err);
@@ -73,7 +73,7 @@ const SymbolReviewTab = ({
     const loadDetectionResults = async (runId) => {
         try {
             setIsLoading(true);
-            const response = await axios.get(`/api/detection_results/${docInfo.docId}/${runId}`);
+            const response = await axios.get(`/api/v1/detection_results/${docInfo.docId}/${runId}`);
             setDetectionResults(response.data);
         } catch (err) {
             console.error('Failed to load detection results:', err);
@@ -94,7 +94,7 @@ const SymbolReviewTab = ({
             setIsLoading(true);
             setError(null);
             
-            const response = await axios.post('/api/run_symbol_detection', {
+            const response = await axios.post('/api/v1/run_symbol_detection', {
                 docId: docInfo.docId,
                 symbols: 'all',
                 detectionParams
@@ -113,7 +113,7 @@ const SymbolReviewTab = ({
     const monitorProgress = () => {
         const checkProgress = async () => {
             try {
-                const progressResponse = await axios.get(`/api/detection_progress/${docInfo.docId}`);
+                const progressResponse = await axios.get(`/api/v1/detection_progress/${docInfo.docId}`);
                 const progress = progressResponse.data;
                 
                 setDetectionProgress(progress);
@@ -134,7 +134,7 @@ const SymbolReviewTab = ({
     // Load page image for canvas
     const loadPageImage = async (pageNumber) => {
         try {
-            const response = await axios.get(`/api/get_page_image/${docInfo.docId}/${pageNumber}`);
+            const response = await axios.get(`/api/v1/get_page_image/${docInfo.docId}/${pageNumber}`);
             setPageImageUrl(response.data.imagePath);
         } catch (err) {
             console.error('Failed to load page image:', err);
@@ -147,7 +147,7 @@ const SymbolReviewTab = ({
         if (!detectionResults?.runId) return;
 
         try {
-            await axios.post('/api/update_detection_coordinates', {
+            await axios.post('/api/v1/update_detection_coordinates', {
                 docId: docInfo.docId,
                 runId: detectionResults.runId,
                 detectionId,
@@ -167,7 +167,7 @@ const SymbolReviewTab = ({
         if (!detectionResults?.runId) return;
 
         try {
-            await axios.post('/api/update_detection_status', {
+            await axios.post('/api/v1/update_detection_status', {
                 docId: docInfo.docId,
                 runId: detectionResults.runId,
                 detectionId,
@@ -187,7 +187,7 @@ const SymbolReviewTab = ({
         if (!detectionResults?.runId || !selectedSymbol) return;
 
         try {
-            await axios.post('/api/add_user_detection', {
+            await axios.post('/api/v1/add_user_detection', {
                 docId: docInfo.docId,
                 runId: detectionResults.runId,
                 symbolId: selectedSymbol,
@@ -208,7 +208,7 @@ const SymbolReviewTab = ({
         if (!detectionResults?.runId) return;
 
         try {
-            await axios.post('/api/delete_detection', {
+            await axios.post('/api/v1/delete_detection', {
                 docId: docInfo.docId,
                 runId: detectionResults.runId,
                 detectionId

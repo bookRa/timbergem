@@ -40,7 +40,7 @@ const PDFToHTMLTab = ({ docInfo }) => {
 
     const checkForExistingHtmlResults = async () => {
         try {
-            const response = await axios.get(`/api/load_html_results/${docInfo.docId}`);
+            const response = await axios.get(`/api/v1/load_html_results/${docInfo.docId}`);
             if (response.data.results) {
                 setHtmlResults(response.data.results);
                 const htmlGen = response.data.results.html_generation;
@@ -83,7 +83,7 @@ const PDFToHTMLTab = ({ docInfo }) => {
 
     const checkForNewHtmlPages = async () => {
         try {
-            const response = await axios.get(`/api/load_html_results/${docInfo.docId}`);
+            const response = await axios.get(`/api/v1/load_html_results/${docInfo.docId}`);
             if (response.data.results) {
                 const htmlGen = response.data.results.html_generation;
                 const newCompletedPages = [];
@@ -131,7 +131,7 @@ const PDFToHTMLTab = ({ docInfo }) => {
 
     const loadPageHtml = async (pageNumber) => {
         try {
-            const response = await axios.get(`/api/get_page_html/${docInfo.docId}/${pageNumber}`);
+            const response = await axios.get(`/api/v1/get_page_html/${docInfo.docId}/${pageNumber}`);
             const htmlContent = response.data.htmlContent;
             
             setProcessedPages(prev => ({
@@ -157,7 +157,7 @@ const PDFToHTMLTab = ({ docInfo }) => {
         setToastNotifications([]); // Clear any existing toasts
 
         // Connect to the SSE stream to start simulation
-        const eventSource = new EventSource(`/api/simulate_pdf_to_html/${docInfo.docId}`);
+        const eventSource = new EventSource(`/api/v1/simulate_pdf_to_html/${docInfo.docId}`);
         eventSourceRef.current = eventSource;
 
         eventSource.onmessage = (event) => {

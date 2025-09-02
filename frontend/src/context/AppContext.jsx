@@ -26,7 +26,7 @@ export function AppProvider({ docId, children }) {
         const fetchPages = async () => {
             try {
                 setIsLoading(true);
-                const res = await fetch(`/api/documents/${docId}/pages`, { signal: controller.signal });
+                const res = await fetch(`/api/v2/documents/${docId}/pages`, { signal: controller.signal });
                 if (!res.ok) {
                     throw new Error(`Failed to fetch pages: ${res.status}`);
                 }

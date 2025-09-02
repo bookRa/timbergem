@@ -782,7 +782,7 @@ const DefineKeyAreasTab = ({
 
     const generatePageSummary = async (pageNumber) => {
         try {
-            const response = await fetch('/api/generate_summary', {
+            const response = await fetch('/api/v1/generate_summary', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -871,7 +871,7 @@ const DefineKeyAreasTab = ({
                 }
             });
 
-            const response = await fetch('/api/generate_clippings', {
+            const response = await fetch('/api/v1/generate_clippings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

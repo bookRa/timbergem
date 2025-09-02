@@ -171,7 +171,7 @@ function App() {
                 // Note: API key will be loaded from environment variables on backend
             }
             
-            const response = await axios.post('/api/process_pdf_to_html', {
+            const response = await axios.post('/api/v1/process_pdf_to_html', {
                 docId: docInfo.docId,
                 config: config
             });
@@ -319,7 +319,7 @@ function App() {
         formData.append('file', file);
 
         try {
-            const response = await axios.post(`${API_BASE_URL}/api/upload`, formData, {
+            const response = await axios.post(`/api/v1/upload`, formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
                 },
@@ -346,7 +346,7 @@ function App() {
     const loadExistingData = async (docId) => {
         try {
             // Load annotations
-            const annotationsResponse = await axios.get(`/api/load_annotations/${docId}`);
+            const annotationsResponse = await axios.get(`/api/v1/load_annotations/${docId}`);
             const annotations = annotationsResponse.data.annotations || [];
             
             const annotationsByPage = {};
@@ -362,7 +362,7 @@ function App() {
 
             // Load page summaries
             try {
-                const summariesResponse = await axios.get(`/api/load_summaries/${docId}`);
+                const summariesResponse = await axios.get(`/api/v1/load_summaries/${docId}`);
                 setPageSummaries(summariesResponse.data.summaries || {});
             } catch (err) {
                 console.log('No existing summaries found');
@@ -407,7 +407,7 @@ function App() {
         if (!docInfo) return;
 
         try {
-            await axios.post('/api/save_project_data', {
+            await axios.post('/api/v1/save_project_data', {
                 docId: docInfo.docId,
                 projectData: projectData
             });
