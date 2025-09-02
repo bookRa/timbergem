@@ -1,7 +1,9 @@
 Flask
+fastapi
 PyMuPDF
 Flask-Cors
 python-dotenv
+neo4j
 
 # LLM providers (optional - install only what you need)
 google-genai
