@@ -2,17 +2,17 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from neo4j import GraphDatabase
 import os
+import json
 
 
 router = APIRouter(prefix="/api", tags=["symbols"])
 
 
-# Neo4j connection config via env vars
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")
+# Storage roots (repo root)
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+UPLOADS_DIR = os.path.join(REPO_ROOT, "uploads")
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 
 
 class BoundingBox(BaseModel):
@@ -36,49 +36,73 @@ class SymbolDefinitionCreate(BaseModel):
     )
 
 
-def _neo4j_driver():
+def _load_json(path: str):
+    if not os.path.exists(path):
+        return None
     try:
-        return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Neo4j connection failed: {e}")
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 
 @router.post("/symbol_definitions")
 def create_symbol_definition(payload: SymbolDefinitionCreate) -> Dict[str, Any]:
-    driver = _neo4j_driver()
-
+    # File-based storage (temporary while migrating off Flask)
+    # Neo4j implementation intentionally commented out.
     bbox = payload.bounding_box.dict() if payload.bounding_box else None
 
-    cypher = (
-        "CREATE (s:SymbolDefinition {"
-        "name: $name, "
-        "description: $description, "
-        "source_sheet_number: $source_sheet_number, "
-        "scope: $scope, "
-        "bounding_box: $bounding_box"
-        "}) RETURN s"
-    )
+    # Determine scope doc folder if provided in source_sheet_number; fallback to global
+    # Caller should include doc_id in request body in future; for now, store globally if not provided.
+    doc_id = os.getenv("TG_ACTIVE_DOC_ID")  # optional override
+    target_dir = os.path.join(UPLOADS_DIR, doc_id) if doc_id else UPLOADS_DIR
+    os.makedirs(target_dir, exist_ok=True)
 
-    params = {
+    dest = os.path.join(target_dir, "symbol_definitions.json")
+    data = _load_json(dest) or {"definitions": []}
+    new_def = {
         "name": payload.name,
         "description": payload.description,
         "source_sheet_number": payload.source_sheet_number,
         "scope": payload.scope,
         "bounding_box": bbox,
     }
+    data["definitions"].append(new_def)
+    with open(dest, "w") as f:
+        json.dump(data, f, indent=2)
 
-    try:
-        with driver.session() as session:
-            result = session.run(cypher, **params)
-            record = result.single()
-            if not record:
-                raise HTTPException(status_code=500, detail="Failed to create symbol definition")
-            node = record["s"]
-            return {
-                "id": node.element_id if hasattr(node, "element_id") else node.id,
-                **node._properties,  # type: ignore[attr-defined]
-            }
-    finally:
-        driver.close()
+    return new_def
+
+
+# Placeholder: Copy over detection logic from Flask (detect_symbols_on_page)
+def detect_symbols_on_page(doc_dir: str, page_number: int) -> Dict[str, Any]:
+    """
+    Placeholder detection function. Replace with the real logic ported from Flask
+    when available. For now, returns an empty detection set for the page.
+    """
+    return {"page": page_number, "detections": []}
+
+
+@router.post("/documents/{doc_id}/detect_symbols")
+def detect_symbols(doc_id: str) -> Dict[str, Any]:
+    """
+    File-based detection endpoint. Loads symbol definitions and runs detection for pages.
+    Saves results into uploads/{doc_id}/detected_symbols.json
+    """
+    doc_dir = os.path.join(UPLOADS_DIR, doc_id)
+    os.makedirs(doc_dir, exist_ok=True)
+
+    # Load definitions if present
+    defs_path = os.path.join(doc_dir, "symbol_definitions.json")
+    definitions = _load_json(defs_path) or {"definitions": []}
+
+    # For now, call a simple placeholder that returns empty results for page 1.
+    results = {"docId": doc_id, "results": [detect_symbols_on_page(doc_dir, 1)]}
+
+    out_path = os.path.join(doc_dir, "detected_symbols.json")
+    with open(out_path, "w") as f:
+        json.dump(results, f, indent=2)
+
+    return results
 
 

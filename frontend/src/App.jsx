@@ -171,7 +171,7 @@ function App() {
                 // Note: API key will be loaded from environment variables on backend
             }
             
-            const response = await axios.post('/api/v2/process_pdf_to_html', {
+            const response = await axios.post('/api/process_pdf_to_html', {
                 docId: docInfo.docId,
                 config: config
             });
@@ -319,7 +319,7 @@ function App() {
         formData.append('file', file);
 
         try {
-            const response = await axios.post(`/api/v2/documents/`, formData, {
+            const response = await axios.post(`/api/documents/`, formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
                 },
@@ -368,7 +368,7 @@ function App() {
 
     const loadExistingData = async (docId) => {
         try {
-            const pagesRes = await fetch(`/api/v2/documents/${docId}/pages`, { cache: 'no-store' });
+            const pagesRes = await fetch(`/api/documents/${docId}/pages`, { cache: 'no-store' });
             if (!pagesRes.ok) {
                 console.log('Pages not ready yet');
                 return;
@@ -382,7 +382,7 @@ function App() {
             for (const p of pages) {
                 const n = p.page_number ?? p.pageNumber;
                 try {
-                    const entRes = await fetch(`/api/v2/documents/${docId}/pages/${n}/entities`, { cache: 'no-store' });
+                    const entRes = await fetch(`/api/documents/${docId}/pages/${n}/entities`, { cache: 'no-store' });
                     if (!entRes.ok) continue;
                     const ent = await entRes.json();
                     const ents = ent.entities || {};

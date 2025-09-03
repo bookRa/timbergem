@@ -24,7 +24,7 @@ export function AppProvider({ docId, children }) {
         const controller = new AbortController();
 
         const fetchPagesOnce = async () => {
-            const res = await fetch(`/api/v2/documents/${docId}/pages`, { signal: controller.signal, cache: 'no-store' });
+            const res = await fetch(`/api/documents/${docId}/pages`, { signal: controller.signal, cache: 'no-store' });
             if (!res.ok) return [];
             const data = await res.json();
             const pages = Array.isArray(data)
