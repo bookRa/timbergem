@@ -23,20 +23,28 @@ export function AppProvider({ docId, children }) {
         let isCancelled = false;
         const controller = new AbortController();
 
-        const fetchPages = async () => {
+        const fetchPagesOnce = async () => {
+            const res = await fetch(`/api/v2/documents/${docId}/pages`, { signal: controller.signal, cache: 'no-store' });
+            if (!res.ok) return [];
+            const data = await res.json();
+            const pages = Array.isArray(data)
+                ? data
+                : (Array.isArray(data?.pages) ? data.pages : (data?.pages ? Object.values(data.pages) : []));
+            return pages;
+        };
+
+        const loadWithRetry = async () => {
             try {
                 setIsLoading(true);
-                const res = await fetch(`/api/v2/documents/${docId}/pages`, { signal: controller.signal });
-                if (!res.ok) {
-                    throw new Error(`Failed to fetch pages: ${res.status}`);
-                }
-                const data = await res.json();
-                const pages = Array.isArray(data) ? data : (Array.isArray(data?.pages) ? data.pages : []);
-                if (!isCancelled) {
-                    setDocumentPages(pages);
-                    if (pages.length > 0 && !selectedPage) {
-                        setSelectedPage(pages[0]);
+                const maxAttempts = 30; // ~15s total with 500ms
+                for (let i = 0; i < maxAttempts && !isCancelled; i++) {
+                    const pages = await fetchPagesOnce();
+                    if (pages.length > 0) {
+                        setDocumentPages(pages);
+                        if (!selectedPage) setSelectedPage(pages[0]);
+                        break;
                     }
+                    await new Promise(r => setTimeout(r, 500));
                 }
             } catch (e) {
                 if (!isCancelled && e.name !== 'AbortError') {
@@ -48,7 +56,7 @@ export function AppProvider({ docId, children }) {
             }
         };
 
-        fetchPages();
+        loadWithRetry();
         return () => {
             isCancelled = true;
             controller.abort();

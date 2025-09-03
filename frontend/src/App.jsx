@@ -171,7 +171,7 @@ function App() {
                 // Note: API key will be loaded from environment variables on backend
             }
             
-            const response = await axios.post('/api/v1/process_pdf_to_html', {
+            const response = await axios.post('/api/v2/process_pdf_to_html', {
                 docId: docInfo.docId,
                 config: config
             });
@@ -319,20 +319,43 @@ function App() {
         formData.append('file', file);
 
         try {
-            const response = await axios.post(`/api/v1/upload`, formData, {
+            const response = await axios.post(`/api/v2/documents/`, formData, {
                 headers: {
                     'Content-Type': 'multipart/form-data',
                 },
             });
 
-            setDocInfo(response.data);
-            setProcessingStatus('🔍 Checking for page images...');
-            
-            // Load existing data if available
-            await loadExistingData(response.data.docId);
-            
-            // Start checking for pixmaps
-            await checkPixmapAvailability(response.data.docId, response.data.totalPages);
+            const newDocId = response.data.docId;
+            // Set minimal doc info first
+            setDocInfo({ docId: newDocId, totalPages: 0, pageMetadata: {} });
+            setProcessingStatus('🔍 Waiting for metadata...');
+
+            // Poll for page_metadata.json so we know total pages
+            const waitForMetadata = async (attempts = 20, delayMs = 500) => {
+                for (let i = 0; i < attempts; i++) {
+                    try {
+                        const res = await fetch(`/data/processed/${newDocId}/page_metadata.json`, { cache: 'no-store' });
+                        if (res.ok) {
+                            const meta = await res.json();
+                            const pages = meta.pages || {};
+                            const pageNums = Object.keys(pages).map(n => parseInt(n, 10)).sort((a, b) => a - b);
+                            const totalPages = meta.totalPages || pageNums.length || 1;
+
+                            setDocInfo({ docId: newDocId, totalPages, pageMetadata: pages });
+                            setProcessingStatus('🔍 Checking for page images...');
+                            // Load existing data if available
+                            await loadExistingData(newDocId);
+                            // Start checking for pixmaps
+                            await checkPixmapAvailability(newDocId, totalPages);
+                            return true;
+                        }
+                    } catch (_) {}
+                    await new Promise(r => setTimeout(r, delayMs));
+                }
+                return false;
+            };
+
+            await waitForMetadata();
 
         } catch (err) {
             const errorMessage = err.response?.data?.error || err.message || 'An unknown error occurred during upload.';
@@ -345,29 +368,31 @@ function App() {
 
     const loadExistingData = async (docId) => {
         try {
-            // Load annotations
-            const annotationsResponse = await axios.get(`/api/v1/load_annotations/${docId}`);
-            const annotations = annotationsResponse.data.annotations || [];
-            
-            const annotationsByPage = {};
-            annotations.forEach(annotation => {
-                const page = annotation.pageNumber;
-                if (!annotationsByPage[page]) {
-                    annotationsByPage[page] = [];
-                }
-                annotationsByPage[page].push(annotation);
-            });
-            
-            setAllAnnotations(annotationsByPage);
+            const pagesRes = await fetch(`/api/v2/documents/${docId}/pages`, { cache: 'no-store' });
+            if (!pagesRes.ok) {
+                console.log('Pages not ready yet');
+                return;
+            }
+            const pagesData = await pagesRes.json();
+            const pages = Array.isArray(pagesData?.pages) ? pagesData.pages : (pagesData?.pages ? Object.values(pagesData.pages) : []);
 
-            // Load page summaries
-            try {
-                const summariesResponse = await axios.get(`/api/v1/load_summaries/${docId}`);
-                setPageSummaries(summariesResponse.data.summaries || {});
-            } catch (err) {
-                console.log('No existing summaries found');
+            const annotationsByPage = {};
+            const summariesByPage = {};
+
+            for (const p of pages) {
+                const n = p.page_number ?? p.pageNumber;
+                try {
+                    const entRes = await fetch(`/api/v2/documents/${docId}/pages/${n}/entities`, { cache: 'no-store' });
+                    if (!entRes.ok) continue;
+                    const ent = await entRes.json();
+                    const ents = ent.entities || {};
+                    annotationsByPage[n] = ents.annotations || [];
+                    if (ents.summary) summariesByPage[n] = ents.summary;
+                } catch (_) {}
             }
 
+            setAllAnnotations(annotationsByPage);
+            setPageSummaries(summariesByPage);
         } catch (err) {
             console.log('No existing data found');
         }

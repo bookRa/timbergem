@@ -13,3 +13,4 @@ pillow  # Required for image processing with LLM providers
 
 # Async support
 asyncio
+python-multipart

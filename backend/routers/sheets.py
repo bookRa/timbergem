@@ -8,9 +8,9 @@ from fastapi import APIRouter, HTTPException
 router = APIRouter(prefix="/api", tags=["sheets"])
 
 
-_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-_UPLOADS_DIR = os.path.join(_BASE_DIR, "uploads")
-_PROCESSED_DIR = os.path.join(_BASE_DIR, "data", "processed")
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+_UPLOADS_DIR = os.path.join(_REPO_ROOT, "uploads")
+_PROCESSED_DIR = os.path.join(_REPO_ROOT, "data", "processed")
 
 
 def _read_json(path: str) -> Optional[Dict[str, Any]]:

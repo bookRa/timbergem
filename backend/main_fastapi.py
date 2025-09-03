@@ -5,6 +5,8 @@ from fastapi.staticfiles import StaticFiles
 # Routers (relative to backend package root)
 from routers.sheets import router as sheets_router
 from routers.symbols import router as symbols_router
+from routers.documents import router as documents_router
+from routers.page_to_html import router as pth_router
 
 
 app = FastAPI()
@@ -28,9 +30,12 @@ app.add_middleware(
 # Include feature routers
 app.include_router(sheets_router)
 app.include_router(symbols_router)
+app.include_router(documents_router)
+app.include_router(pth_router)
 
 
-# Static files (processed uploads & assets)
-app.mount("/static", StaticFiles(directory="uploads"), name="static")
+# Static files (processed uploads & assets) served from repo root paths
+app.mount("/static", StaticFiles(directory="../uploads"), name="static")
+app.mount("/data/processed", StaticFiles(directory="../data/processed"), name="processed")
 
 
